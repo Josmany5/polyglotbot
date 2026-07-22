@@ -1,0 +1,6 @@
+{
+  "name": "Polyglotbot",
+  "description": "Real-time AI language tutor & translator with phonetics, slang insights, custom phrase folders, flashcards, and quizzes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
