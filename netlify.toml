@@ -5,6 +5,10 @@
 [functions]
   directory = "netlify/functions"
   included_files = ["node_modules/**"]
+  node_bundler = "esbuild"
+
+[functions."api"]
+  external_node_modules = ["@google/genai"]
 
 [[redirects]]
   from = "/api/*"
