@@ -112,17 +112,6 @@ export const PhrasebookTab: React.FC<PhrasebookTabProps> = ({
         </div>
 
         <div className="flex items-center space-x-2">
-          {onOpenStarterDeck && (
-            <button
-              onClick={onOpenStarterDeck}
-              className="px-3.5 py-2.5 text-xs font-black text-white bg-[#4ECDC4] hover:bg-[#3dbdb4] rounded-xl border-2 border-[#2D3436] shadow-[3px_3px_0px_0px_rgba(45,52,54,1)] transition flex items-center space-x-1.5"
-              title="Load 4-Level Starter Deck for any language"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>⚡ Starter Deck</span>
-            </button>
-          )}
-
           <button
             onClick={() => setShowNewFolderModal(true)}
             className="px-4 py-2.5 text-xs font-extrabold text-white bg-[#FF6B6B] hover:bg-[#ff5252] rounded-xl border-2 border-[#2D3436] shadow-[3px_3px_0px_0px_rgba(45,52,54,1)] transition flex items-center space-x-1.5"
@@ -162,7 +151,10 @@ export const PhrasebookTab: React.FC<PhrasebookTabProps> = ({
 
           <div className="space-y-2">
             <button
-              onClick={() => setActiveFolderId('all')}
+              onClick={() => {
+                setActiveFolderId('all');
+                setSelectedLang('all');
+              }}
               className={`w-full flex items-center justify-between p-3.5 rounded-2xl text-xs font-black transition border-2 ${
                 activeFolderId === 'all'
                   ? 'bg-[#2D3436] text-white border-[#2D3436] shadow-[4px_4px_0px_0px_rgba(255,107,107,1)]'
@@ -190,7 +182,10 @@ export const PhrasebookTab: React.FC<PhrasebookTabProps> = ({
                       ? 'bg-[#2D3436] text-white border-[#2D3436] shadow-[4px_4px_0px_0px_rgba(78,205,196,1)]'
                       : 'bg-white text-[#2D3436] border-[#2D3436] shadow-[3px_3px_0px_0px_rgba(45,52,54,1)] hover:bg-[#F7F3E9]'
                   }`}
-                  onClick={() => setActiveFolderId(folder.id)}
+                  onClick={() => {
+                    setActiveFolderId(folder.id);
+                    setSelectedLang('all');
+                  }}
                 >
                   <div className="flex items-center space-x-2 truncate pr-2">
                     <FolderHeart className="w-4 h-4 shrink-0 text-[#4ECDC4]" />

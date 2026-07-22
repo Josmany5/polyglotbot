@@ -1,13 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { SavedPhrase, Folder, LanguageCode } from '../types';
 import { LANGUAGES } from '../data/languages';
 import { CORE_PACKS, CorePack } from '../data/corePhrases';
 import { playTextToSpeech } from '../utils/audio';
-import {
-  coreTranslationQueue,
-  getCachedCoreTranslation,
-  loadAllCachedTranslations,
-} from '../utils/translationQueue';
+import { getCachedCoreTranslation, setCachedCoreTranslation, loadAllCachedTranslations } from '../utils/translationQueue';
 import {
   BookOpen,
   Sparkles,
@@ -47,102 +43,75 @@ export const CurriculumTab: React.FC<CurriculumTabProps> = ({
 
   const langObj = LANGUAGES.find((l) => l.code === selectedLang) || LANGUAGES[11];
 
-  // Background preload: when language changes, immediately start translating Pack 1-2
-  useEffect(() => {
-    if (selectedLang && CORE_PACKS.length > 0) {
-      // Preload Pack 1 (priority) + Pack 2 (background)
-      const pack1 = CORE_PACKS[0];
-      const pack2 = CORE_PACKS[1];
-      coreTranslationQueue.preloadPack(
-        pack1.phrases.map((p) => ({ id: p.id, english: p.english })),
-        selectedLang,
-        `${selectedLang}-core-pack-${pack1.packNumber}`,
-        true
-      );
-      coreTranslationQueue.preloadPack(
-        pack2.phrases.map((p) => ({ id: p.id, english: p.english })),
-        selectedLang,
-        `${selectedLang}-core-pack-${pack2.packNumber}`,
-        false
-      );
-    }
-  }, [selectedLang]);
-
+  // Batch translate a pack in a single API call (~3 seconds instead of ~2 minutes)
   const handleUnlockPack = async (pack: CorePack) => {
     const packId = `${selectedLang}-core-pack-${pack.packNumber}`;
+    if (unlockedPackIds.includes(packId) || translatingPackId) return;
 
-    if (unlockedPackIds.includes(packId)) return;
-    if (translatingPackId) {
-      // Another pack is already translating — block double-click
+    const uncached = pack.phrases.filter((p) => !getCachedCoreTranslation(p.id, selectedLang));
+    if (uncached.length === 0) {
+      // All cached — just add to phrasebook
+      addPackToPhrasebook(pack, packId);
       return;
     }
 
     setTranslatingPackId(packId);
     setTranslationProgress({ completed: 0, total: pack.phrases.length });
 
-    // Process this pack with priority
-    coreTranslationQueue.processQueue(
-      pack.phrases.map((p) => ({ id: p.id, english: p.english })),
-      selectedLang,
-      {
-        onProgress: (completed, total) => {
-          // Clamp progress to max total to avoid 30/25 display
-          const clamped = Math.min(completed, total);
-          setTranslationProgress({ completed: clamped, total });
-        },
-        onComplete: () => {
-          const itemsToSave = pack.phrases.map((p) => {
-            const cached = getCachedCoreTranslation(p.id, selectedLang);
-            return {
-              sourceText: p.english,
-              translatedText: cached?.translated || '',
-              sourceLang: 'en' as LanguageCode,
-              targetLang: selectedLang,
-              phonetic: cached?.phonetic || '',
-              notes: cached?.grammarNote || '',
-              tags: [langObj.name, 'Core Deck', `Pack ${pack.packNumber}`],
-            };
-          }).filter((item) => item.translatedText);
+    try {
+      const res = await fetch('/api/batch-translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phrases: uncached.map((p) => ({ id: p.id, english: p.english })),
+          targetLang: selectedLang,
+        }),
+      });
 
-          if (itemsToSave.length > 0) {
-            onUnlockPack(
-              `${langObj.flag} ${langObj.name} — ${pack.title}`,
-              pack.description,
-              itemsToSave,
-              packId
-            );
-          }
+      if (res.ok) {
+        const data = await res.json();
+        const results = data.results || [];
+        results.forEach((r: any) => {
+          setCachedCoreTranslation(r.id, selectedLang, {
+            translated: r.translated || '',
+            phonetic: r.phonetic || '',
+            grammarNote: r.grammarNote || undefined,
+            cachedAt: Date.now(),
+          });
+        });
+        setTranslationProgress({ completed: pack.phrases.length, total: pack.phrases.length });
+      }
+    } catch (e) {
+      console.warn('Batch translate failed, falling back to single:', e);
+    }
 
-          // Chain: auto-preload the next 2 packs in background
-          const currentIdx = CORE_PACKS.findIndex((p) => p.packNumber === pack.packNumber);
-          const nextPack = CORE_PACKS[currentIdx + 1];
-          const nextNextPack = CORE_PACKS[currentIdx + 2];
-          if (nextPack) {
-            coreTranslationQueue.preloadPack(
-              nextPack.phrases.map((p) => ({ id: p.id, english: p.english })),
-              selectedLang,
-              `${selectedLang}-core-pack-${nextPack.packNumber}`,
-              true
-            );
-          }
-          if (nextNextPack) {
-            coreTranslationQueue.preloadPack(
-              nextNextPack.phrases.map((p) => ({ id: p.id, english: p.english })),
-              selectedLang,
-              `${selectedLang}-core-pack-${nextNextPack.packNumber}`,
-              false
-            );
-          }
+    addPackToPhrasebook(pack, packId);
+    setTranslatingPackId(null);
+    setTranslationProgress(null);
+  };
 
-          setTranslatingPackId(null);
-          setTranslationProgress(null);
-        },
-        onError: (phraseId) => {
-          console.warn(`Translation failed for ${phraseId}`);
-        },
-      },
-      packId
-    );
+  const addPackToPhrasebook = (pack: CorePack, packId: string) => {
+    const items = pack.phrases.map((p) => {
+      const cached = getCachedCoreTranslation(p.id, selectedLang);
+      return {
+        sourceText: p.english,
+        translatedText: cached?.translated || '',
+        sourceLang: 'en' as LanguageCode,
+        targetLang: selectedLang,
+        phonetic: cached?.phonetic || '',
+        notes: cached?.grammarNote || '',
+        tags: [langObj.name, 'Core Deck', `Pack ${pack.packNumber}`],
+      };
+    }).filter((item) => item.translatedText);
+
+    if (items.length > 0) {
+      onUnlockPack(
+        `${langObj.flag} ${langObj.name} — ${pack.title}`,
+        pack.description,
+        items,
+        packId
+      );
+    }
   };
 
   const toggleCollapse = (packNumber: number) => {

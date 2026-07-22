@@ -106,15 +106,6 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Desktop Stats Ticker */}
           <div className="hidden md:flex items-center space-x-3 text-xs">
-            {onOpenStarterDeck && (
-              <button
-                onClick={onOpenStarterDeck}
-                className="flex items-center px-3.5 py-1.5 bg-[#4ECDC4] text-white font-black rounded-xl border-2 border-[#2D3436] shadow-[2px_2px_0px_0px_rgba(45,52,54,1)] hover:bg-[#3dbdb4] transition"
-              >
-                <Sparkles className="w-3.5 h-3.5 mr-1.5" />
-                <span>⚡ Starter Decks</span>
-              </button>
-            )}
             <div className="flex items-center px-3 py-1.5 bg-[#4ECDC4]/15 rounded-xl border-2 border-[#2D3436] text-[#2D3436]">
               <BookmarkCheck className="w-4 h-4 mr-1.5 text-[#2D3436]" />
               <span>

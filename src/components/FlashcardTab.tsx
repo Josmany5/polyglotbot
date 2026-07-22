@@ -83,20 +83,21 @@ export const FlashcardTab: React.FC<FlashcardTabProps> = ({
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       {/* Top Deck Selector */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-5 rounded-3xl border-4 border-[#2D3436] shadow-[8px_8px_0px_0px_rgba(45,52,54,1)]">
-        <div className="flex items-center space-x-2">
-          <Layers className="w-5 h-5 text-[#FF6B6B]" />
-          <span className="text-sm font-black text-[#2D3436]">Study Deck:</span>
-          <div className="flex items-center p-1 bg-[#F7F3E9] rounded-xl border-2 border-[#2D3436] mr-2">
+      <div className="bg-white p-4 sm:p-5 rounded-3xl border-4 border-[#2D3436] shadow-[8px_8px_0px_0px_rgba(45,52,54,1)] space-y-3">
+        {/* Row 1: Source toggle + folder selector */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Layers className="w-5 h-5 text-[#FF6B6B] shrink-0" />
+          <span className="text-sm font-black text-[#2D3436] shrink-0">Study Deck:</span>
+          <div className="flex items-center p-1 bg-[#F7F3E9] rounded-xl border-2 border-[#2D3436]">
             <button
               onClick={() => { setDeckSource('phrasebook'); setSelectedFolderId('all'); setCurrentIndex(0); setIsFlipped(false); }}
-              className={`px-2.5 py-1 rounded-lg text-xs font-black transition ${deckSource === 'phrasebook' ? 'bg-[#2D3436] text-white' : 'text-[#2D3436] hover:bg-white'}`}
+              className={`px-2.5 py-1 rounded-lg text-xs font-black transition whitespace-nowrap ${deckSource === 'phrasebook' ? 'bg-[#2D3436] text-white' : 'text-[#2D3436] hover:bg-white'}`}
             >
               📁 Saved
             </button>
             <button
               onClick={() => { setDeckSource('core'); setCurrentIndex(0); setIsFlipped(false); }}
-              className={`px-2.5 py-1 rounded-lg text-xs font-black transition ${deckSource === 'core' ? 'bg-[#4ECDC4] text-white' : 'text-[#2D3436] hover:bg-white'}`}
+              className={`px-2.5 py-1 rounded-lg text-xs font-black transition whitespace-nowrap ${deckSource === 'core' ? 'bg-[#4ECDC4] text-white' : 'text-[#2D3436] hover:bg-white'}`}
             >
               📚 Core
             </button>
@@ -109,9 +110,9 @@ export const FlashcardTab: React.FC<FlashcardTabProps> = ({
                 setCurrentIndex(0);
                 setIsFlipped(false);
               }}
-              className="bg-[#FFE66D] text-[#2D3436] px-3.5 py-1.5 text-xs font-black rounded-xl border-2 border-[#2D3436] shadow-[2px_2px_0px_0px_rgba(45,52,54,1)] outline-none cursor-pointer"
+              className="bg-[#FFE66D] text-[#2D3436] px-3 py-1.5 text-xs font-black rounded-xl border-2 border-[#2D3436] shadow-[2px_2px_0px_0px_rgba(45,52,54,1)] outline-none cursor-pointer max-w-[180px]"
             >
-              <option value="all">All Folders ({phrases.length})</option>
+              <option value="all">All ({phrases.length})</option>
               {folders.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.name} ({phrases.filter((p: any) => p.folderId === f.id).length})
@@ -126,47 +127,35 @@ export const FlashcardTab: React.FC<FlashcardTabProps> = ({
           )}
         </div>
 
-        <div className="flex items-center space-x-2 text-xs font-black text-[#2D3436]">
-          {/* Front Side Mode Switcher */}
+        {/* Row 2: Front mode + card counter + shuffle */}
+        <div className="flex items-center justify-between gap-2 text-xs font-black text-[#2D3436]">
           <div className="flex items-center p-1 bg-[#F7F3E9] rounded-xl border-2 border-[#2D3436]">
             <button
-              onClick={() => {
-                setFrontSideMode('english');
-                setIsFlipped(false);
-              }}
-              className={`px-2.5 py-1 rounded-lg transition ${
-                frontSideMode === 'english'
-                  ? 'bg-[#2D3436] text-white'
-                  : 'text-[#2D3436] hover:bg-white'
-              }`}
+              onClick={() => { setFrontSideMode('english'); setIsFlipped(false); }}
+              className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap ${frontSideMode === 'english' ? 'bg-[#2D3436] text-white' : 'text-[#2D3436] hover:bg-white'}`}
             >
               🇺🇸 English Front
             </button>
             <button
-              onClick={() => {
-                setFrontSideMode('target');
-                setIsFlipped(false);
-              }}
-              className={`px-2.5 py-1 rounded-lg transition ${
-                frontSideMode === 'target'
-                  ? 'bg-[#4ECDC4] text-white'
-                  : 'text-[#2D3436] hover:bg-white'
-              }`}
+              onClick={() => { setFrontSideMode('target'); setIsFlipped(false); }}
+              className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap ${frontSideMode === 'target' ? 'bg-[#4ECDC4] text-white' : 'text-[#2D3436] hover:bg-white'}`}
             >
               🌍 Target Front
             </button>
           </div>
 
-          <span>
-            Card <strong className="text-[#FF6B6B]">{currentIndex + 1}</strong> of {deckPhrases.length}
-          </span>
-          <button
-            onClick={handleShuffle}
-            className="w-8 h-8 rounded-xl bg-[#4ECDC4] text-white border-2 border-[#2D3436] shadow-[2px_2px_0px_0px_rgba(45,52,54,1)] hover:bg-[#3dbdb4] transition flex items-center justify-center"
-            title="Shuffle deck"
-          >
-            <Shuffle className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <span className="whitespace-nowrap">
+              Card <strong className="text-[#FF6B6B]">{currentIndex + 1}</strong> of {deckPhrases.length}
+            </span>
+            <button
+              onClick={handleShuffle}
+              className="w-8 h-8 rounded-xl bg-[#4ECDC4] text-white border-2 border-[#2D3436] shadow-[2px_2px_0px_0px_rgba(45,52,54,1)] hover:bg-[#3dbdb4] transition flex items-center justify-center shrink-0"
+              title="Shuffle deck"
+            >
+              <Shuffle className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 

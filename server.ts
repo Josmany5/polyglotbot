@@ -13,570 +13,219 @@ const PORT = 3000;
 
 app.use(express.json({ limit: '10mb' }));
 
-// Lazy init Gemini AI client
 function getGeminiClient() {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is not set in environment variables.');
+  if (!apiKey) throw new Error('GEMINI_API_KEY is not set.');
+  return new GoogleGenAI({ apiKey, httpOptions: { headers: { 'User-Agent': 'aistudio-build' } } });
+}
+
+const cache = new Map<string, any>();
+const MAX_CACHE = 500;
+function cacheGet(k: string) { return cache.get(k); }
+function cacheSet(k: string, v: any) {
+  if (cache.size >= MAX_CACHE) { const oldest = cache.keys().next().value; if (oldest) cache.delete(oldest); }
+  cache.set(k, v);
+}
+
+async function callGemini(ai: any, params: { contents: any; config?: any }) {
+  const models = ['gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-flash-latest'];
+  let lastErr: any = null;
+  for (const model of models) {
+    try { return await ai.models.generateContent({ ...params, model }); }
+    catch (e: any) { lastErr = e; }
   }
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
-  });
+  throw lastErr;
 }
 
-// Server-side in-memory cache for ultra-fast instant responses
-const translationCache = new Map<string, any>();
-const MAX_CACHE_SIZE = 500;
-
-function getCachedTranslation(key: string) {
-  return translationCache.get(key);
-}
-
-function setCachedTranslation(key: string, value: any) {
-  if (translationCache.size >= MAX_CACHE_SIZE) {
-    const oldestKey = translationCache.keys().next().value;
-    if (oldestKey) translationCache.delete(oldestKey);
-  }
-  translationCache.set(key, value);
-}
-
-// Helper to call Gemini with model fallback in case of rate limits or model availability
-async function callGeminiWithFallback(ai: any, params: {
-  contents: any;
-  config?: any;
-}) {
-  // Try gemini-3.1-flash-lite first for lightning fast response time, then 3.6-flash
-  const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-flash-latest'];
-  let lastError: any = null;
-
-  for (const model of modelsToTry) {
-    try {
-      const response = await ai.models.generateContent({
-        ...params,
-        model,
-      });
-      return response;
-    } catch (err: any) {
-      console.warn(`Gemini call with model ${model} failed: ${err?.message || err}. Trying next model...`);
-      lastError = err;
-    }
-  }
-  throw lastError;
-}
-
-// 1. REAL-TIME AI TRANSLATION & TUTOR ROUTE
+// 1. SINGLE-PHRASE TRANSLATION
 app.post('/api/translate', async (req, res) => {
   try {
     const { text, sourceLang = 'auto', targetLang = 'es' } = req.body;
+    if (!text || !text.trim()) return res.status(400).json({ error: 'Text required' });
 
-    if (!text || typeof text !== 'string' || !text.trim()) {
-      return res.status(400).json({ error: 'Text is required for translation.' });
-    }
-
-    const cacheKey = `${sourceLang}:${targetLang}:${text.trim().toLowerCase()}`;
-    const cached = getCachedTranslation(cacheKey);
-    if (cached) {
-      console.log(`[Cache Hit - 0ms] Returning cached translation for key: ${cacheKey}`);
-      return res.json({ ...cached, isCached: true });
-    }
+    const ck = `trans:${sourceLang}:${targetLang}:${text.trim().toLowerCase()}`;
+    const cached = cacheGet(ck);
+    if (cached) return res.json({ ...cached, isCached: true });
 
     const ai = getGeminiClient();
-
-    const systemInstruction = `You are Polyglotbot, a world-class AI language tutor and translation engine.
-Translate the input text into the target language (${targetLang}) from source language (${sourceLang}).
-
-CRITICAL INSTRUCTIONS:
-1. ALL explanations ("grammarNotes", "wordBreakdown.note", "wordBreakdown.pos", "slangInsights.meaning", "slangInsights.culturalNote") MUST BE WRITTEN IN ENGLISH so learners can understand grammar rules!
-2. "wordBreakdown[].original" MUST be the target language word/phrase in native script (e.g., "Γεια σου").
-3. "wordBreakdown[].translation" MUST be the English translation (e.g., "Hello to you").
-4. "wordBreakdown[].phonetic" MUST be a clear Latin phonetic transliteration (e.g., "Yia soo").
-
-Return ONLY valid JSON matching this exact structure:
-{
-  "sourceLang": "${sourceLang}",
-  "targetLang": "${targetLang}",
-  "detectedSourceLang": "e.g. en or el",
-  "sourceText": "original text",
-  "translatedText": "translated text in target language",
-  "overallPhonetic": "Phonetic pronunciation guide or transliteration (e.g., Pinyin, Romaji, Greek Transliteration, Arabic Transliteration)",
-  "formalityLevel": "formal" | "neutral" | "casual",
-  "alternativeTranslations": ["alt 1", "alt 2"],
-  "grammarNotes": ["concise English grammar rule tip 1", "concise English grammar rule tip 2"],
-  "sentences": [
-    {
-      "sourceSentence": "first sentence in source language",
-      "translatedSentence": "translated sentence in target language",
-      "phonetic": "sentence phonetic guide",
-      "wordBreakdown": [
-        {
-          "original": "target language word in native script",
-          "phonetic": "word phonetic transliteration",
-          "translation": "English meaning",
-          "pos": "Noun | Verb | Particle | Idiom | Expression",
-          "note": "English grammar/usage rule note"
-        }
-      ]
-    }
-  ],
-  "slangInsights": [
-    {
-      "phrase": "native colloquial or urban phrase in target language",
-      "meaning": "English meaning",
-      "literalTranslation": "literal English translation",
-      "culturalNote": "English cultural context note",
-      "register": "casual" | "urban/slang" | "idiomatic" | "polite"
-    }
-  ]
-}`;
-
-    const prompt = `Translate and analyze this text for a learner:
-Source Language: ${sourceLang}
-Target Language: ${targetLang}
-Input Text:
-"""
-${text.trim()}
-"""`;
-
-    let response;
-    try {
-      response = await callGeminiWithFallback(ai, {
-        contents: prompt,
-        config: {
-          systemInstruction,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              sourceLang: { type: Type.STRING },
-              targetLang: { type: Type.STRING },
-              detectedSourceLang: { type: Type.STRING },
-              sourceText: { type: Type.STRING },
-              translatedText: { type: Type.STRING },
-              overallPhonetic: { type: Type.STRING },
-              formalityLevel: { type: Type.STRING },
-              alternativeTranslations: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-              },
-              grammarNotes: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-              },
-              sentences: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    sourceSentence: { type: Type.STRING },
-                    translatedSentence: { type: Type.STRING },
-                    phonetic: { type: Type.STRING },
-                    wordBreakdown: {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.OBJECT,
-                        properties: {
-                          original: { type: Type.STRING },
-                          phonetic: { type: Type.STRING },
-                          translation: { type: Type.STRING },
-                          pos: { type: Type.STRING },
-                          note: { type: Type.STRING },
-                        },
-                        required: ['original', 'translation', 'pos'],
-                      },
-                    },
-                  },
-                  required: ['sourceSentence', 'translatedSentence', 'wordBreakdown'],
-                },
-              },
-              slangInsights: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    phrase: { type: Type.STRING },
-                    meaning: { type: Type.STRING },
-                    literalTranslation: { type: Type.STRING },
-                    culturalNote: { type: Type.STRING },
-                    register: { type: Type.STRING },
-                  },
-                  required: ['phrase', 'meaning', 'culturalNote'],
-                },
-              },
-            },
-            required: [
-              'translatedText',
-              'overallPhonetic',
-              'sentences',
-              'slangInsights',
-              'grammarNotes',
-            ],
-          },
-        },
-      });
-
-      const resultText = response.text || '{}';
-      const translationData = JSON.parse(resultText);
-      setCachedTranslation(cacheKey, translationData);
-      return res.json(translationData);
-    } catch (genErr: any) {
-      console.error('All Gemini models failed for translate, providing rate-limit aware response:', genErr);
-      const isQuotaError = String(genErr?.message || genErr).includes('429') || String(genErr?.message || genErr).includes('quota');
-      return res.status(429).json({
-        error: isQuotaError ? 'Gemini API free tier rate limit temporarily reached. Please retry in a few seconds.' : 'Translation service temporarily busy. Please try again.',
-        details: genErr?.message || String(genErr),
-      });
-    }
-  } catch (error: any) {
-    console.error('Translation error:', error);
-    return res.status(500).json({
-      error: 'Failed to process translation.',
-      details: error.message || String(error),
+    const response = await callGemini(ai, {
+      contents: `Translate: "${text.trim()}" from ${sourceLang} to ${targetLang}. Return JSON with: translatedText, overallPhonetic, sentences (array of {sourceSentence,translatedSentence,phonetic,wordBreakdown:[{original,phonetic,translation,pos,note}]}), slangInsights ([{phrase,meaning,literalTranslation,culturalNote,register}]), grammarNotes (string[]), alternativeTranslations (string[]), formalityLevel, sourceLang, targetLang, detectedSourceLang, sourceText. All explanations MUST be in English.`,
+      config: {
+        systemInstruction: `You are a language tutor. Return ONLY valid JSON. Phonetic must be clear Latin transliteration. Word breakdown notes must be in English.`,
+        responseMimeType: 'application/json',
+      },
     });
+
+    const data = JSON.parse(response.text || '{}');
+    cacheSet(ck, data);
+    res.json(data);
+  } catch (e: any) {
+    res.status(500).json({ error: 'Translation failed', details: e.message });
   }
 });
 
-// 2. FREE TTS PROXY — fetches MP3 from Google Translate, serves same-origin, cached in memory
+// 2. BATCH TRANSLATION — 25 phrases in one call (~3 seconds instead of 2 minutes)
+app.post('/api/batch-translate', async (req, res) => {
+  try {
+    const { phrases, targetLang = 'es' } = req.body;
+    if (!Array.isArray(phrases) || phrases.length === 0) return res.status(400).json({ error: 'phrases array required' });
+
+    const ai = getGeminiClient();
+    const phraseList = phrases.map((p: any) => `"${p.english}"`).join('\n');
+
+    const response = await callGemini(ai, {
+      contents: `Translate EXACTLY these ${phrases.length} English phrases into ${targetLang}. Do NOT change, rephrase, or substitute any phrases. Return a JSON object: {"results": [${phrases.map((p: any) => `{"id":"${p.id}","english":"${p.english}","translated":"...","phonetic":"...","grammarNote":"..."}`).join(',')}]}. Fill in translated, phonetic, and grammarNote for EACH phrase. ALL grammar notes in plain English. Phonetic MUST be clear Latin transliteration.`,
+      config: {
+        systemInstruction: `You are a precise language translator. Translate each phrase exactly as given — do NOT modify, expand, or change the English text. Return ONLY valid JSON with the exact same id and english fields.`,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const data = JSON.parse(response.text || '{"results":[]}');
+    res.json(data);
+  } catch (e: any) {
+    res.status(500).json({ error: 'Batch translation failed', details: e.message });
+  }
+});
+
+// 3. AI-GENERATED PRACTICE PHRASES — fresh unique phrases per category, never repeats
+app.post('/api/generate-practice', async (req, res) => {
+  try {
+    const { category, targetLang = 'es', usedPhrases = [] } = req.body;
+    if (!category) return res.status(400).json({ error: 'category required' });
+
+    const ai = getGeminiClient();
+    const previouslyUsed = usedPhrases.length > 0
+      ? `Do NOT use any of these phrases: ${usedPhrases.slice(0, 10).join(', ')}.`
+      : '';
+
+    const response = await callGemini(ai, {
+      contents: `Generate a NEW, practical ${category} phrase a traveler would use in a ${targetLang}-speaking country. ${previouslyUsed} Return ONE phrase that is natural and useful. Return JSON: {english: "the English phrase", translated: "translation in ${targetLang}", phonetic: "Latin transliteration", grammarNotes: ["1-2 short English grammar tips"], slangInsights: [{phrase,meaning,literalTranslation,culturalNote,register:"casual"}]}`,
+      config: { systemInstruction: `Generate fresh, useful language practice phrases. Never repeat. Return ONLY valid JSON.`, responseMimeType: 'application/json' },
+    });
+
+    const data = JSON.parse(response.text || '{}');
+    res.json(data);
+  } catch (e: any) { res.status(500).json({ error: 'Practice generation failed' }); }
+});
+
+// 4. FREE TTS PROXY
 app.get('/api/free-tts', async (req, res) => {
   try {
     const { text, lang } = req.query;
-    if (!text || !lang) {
-      return res.status(400).json({ error: 'text and lang query params required' });
-    }
-
+    if (!text || !lang) return res.status(400).json({ error: 'text and lang required' });
     const cleanLang = String(lang).split('-')[0].toLowerCase();
     const sanitized = String(text).replace(/\n/g, ' ').trim().slice(0, 200);
-
-    // Check in-memory cache (same map used by translations)
-    const cacheKey = `tts:${cleanLang}:${sanitized}`;
-    const cached = getCachedTranslation(cacheKey);
+    const ck = `tts:${cleanLang}:${sanitized}`;
+    const cached = cacheGet(ck);
     if (cached) {
-      console.log(`[TTS Cache Hit] Returning cached audio for "${sanitized}"`);
-      res.set({
-        'Content-Type': 'audio/mpeg',
-        'Content-Length': cached.length,
-        'Cache-Control': 'public, max-age=86400',
-      });
+      res.set({ 'Content-Type': 'audio/mpeg', 'Content-Length': cached.length, 'Cache-Control': 'public, max-age=86400' });
       return res.send(cached);
     }
-
     const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(sanitized)}&tl=${cleanLang}&client=tw-ob`;
-
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-      },
-    });
-
-    if (!response.ok) {
-      return res.status(response.status).json({ error: 'Failed to fetch TTS audio' });
-    }
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-
-    // Cache for future requests (hit 0ms on repeated same-phrase clicks)
-    setCachedTranslation(cacheKey, buffer);
-
-    res.set({
-      'Content-Type': 'audio/mpeg',
-      'Content-Length': buffer.length,
-      'Cache-Control': 'public, max-age=86400',
-    });
+    const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (!resp.ok) return res.status(resp.status).json({ error: 'TTS fetch failed' });
+    const buffer = Buffer.from(await resp.arrayBuffer());
+    cacheSet(ck, buffer);
+    res.set({ 'Content-Type': 'audio/mpeg', 'Content-Length': buffer.length, 'Cache-Control': 'public, max-age=86400' });
     res.send(buffer);
-  } catch (err: any) {
-    console.error('Free TTS proxy error:', err);
-    res.status(500).json({ error: 'TTS proxy failed' });
-  }
+  } catch (e: any) { res.status(500).json({ error: 'TTS failed' }); }
 });
 
-// 2.5. GEMINI TTS — premium quality (original endpoint)
-// 2. TEXT-TO-SPEECH ENDPOINT
+// 4. GEMINI TTS (premium)
 app.post('/api/tts', async (req, res) => {
   try {
     const { text, voice = 'Zephyr' } = req.body;
-    if (!text) {
-      return res.status(400).json({ error: 'Text is required for audio generation.' });
-    }
-
+    if (!text) return res.status(400).json({ error: 'Text required' });
     const ai = getGeminiClient();
-    const ttsResponse = await ai.models.generateContent({
+    const r = await ai.models.generateContent({
       model: 'gemini-3.1-flash-tts-preview',
-      contents: [{ parts: [{ text: `Speak clearly: ${text}` }] }],
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: voice },
-          },
-        },
-      },
+      contents: [{ parts: [{ text: `Speak: ${text}` }] }],
+      config: { responseModalities: [Modality.AUDIO], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } },
     });
-
-    const audioData = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!audioData) {
-      return res.json({ audioBase64: null, useFallback: true });
-    }
-
-    return res.json({ audioBase64: audioData });
-  } catch (error: any) {
-    console.info('TTS endpoint info: Rate limit or preview unavailable, signaling WebSpeech fallback.');
-    return res.json({ audioBase64: null, useFallback: true });
-  }
+    const audio = r.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    res.json({ audioBase64: audio || null, useFallback: !audio });
+  } catch { res.json({ audioBase64: null, useFallback: true }); }
 });
 
-// 3. AI QUIZ GENERATOR ENDPOINT
+// 5. QUIZ GENERATOR
 app.post('/api/generate-quiz', async (req, res) => {
   try {
     const { phrases = [], targetLang = 'es', topic = 'General' } = req.body;
-    const cacheKey = `quiz:${targetLang}:${topic.toLowerCase()}:${phrases.length}`;
-    const cachedQuiz = getCachedTranslation(cacheKey);
-    if (cachedQuiz) {
-      console.log(`[Server Cache Hit] Quiz for ${cacheKey}`);
-      return res.json(cachedQuiz);
-    }
-
+    const ck = `quiz:${targetLang}:${topic}:${phrases.length}`;
+    const cached = cacheGet(ck);
+    if (cached) return res.json(cached);
     const ai = getGeminiClient();
-
-    const systemInstruction = `You are Polyglotbot Quiz Creator.
-Generate 5 interactive, fun, and high-yield quiz questions for learning language ${targetLang}.
-If saved phrases are provided, generate questions directly testing those saved phrases (e.g. translation, meaning, fill-in-the-blank).
-Otherwise generate top essential vocabulary/phrases questions for the topic: ${topic}.
-
-Return strictly JSON format:
-{
-  "questions": [
-    {
-      "id": "q1",
-      "type": "mcq_translation" | "mcq_meaning" | "fill_blank" | "audio_listen",
-      "question": "Clear prompt question",
-      "promptText": "Text in target or source language to translate or fill in",
-      "options": ["Option A", "Option B", "Option C", "Option D"],
-      "correctAnswerIndex": 0,
-      "explanation": "Grammar and vocabulary breakdown explaining why this answer is correct."
-    }
-  ]
-}`;
-
-    const prompt = `Phrases context: ${JSON.stringify(phrases)}
-Target Language: ${targetLang}
-Topic: ${topic}`;
-
-    const response = await callGeminiWithFallback(ai, {
-      contents: prompt,
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-      },
+    const r = await callGemini(ai, {
+      contents: `Generate 5 quiz questions for ${targetLang}. Topic: ${topic}. Context: ${JSON.stringify(phrases)}`,
+      config: { systemInstruction: `Return JSON: {questions:[{id,type:"mcq",question,promptText,options:[],correctAnswerIndex:0,explanation}]}`, responseMimeType: 'application/json' },
     });
-
-    const quizData = JSON.parse(response.text || '{"questions":[]}');
-    setCachedTranslation(cacheKey, quizData);
-    return res.json(quizData);
-  } catch (error: any) {
-    console.error('Quiz generation error:', error);
-    return res.status(500).json({ error: 'Failed to generate quiz.' });
-  }
+    const data = JSON.parse(r.text || '{"questions":[]}');
+    cacheSet(ck, data);
+    res.json(data);
+  } catch (e: any) { res.status(500).json({ error: 'Quiz failed' }); }
 });
 
-// 4. PRONUNCIATION GRADER & TUTOR FEEDBACK
+// 6. PRONUNCIATION CHECK
 app.post('/api/check-pronunciation', async (req, res) => {
   try {
     const { expectedText, transcript, targetLang = 'es' } = req.body;
-    if (!expectedText || !transcript) {
-      return res.status(400).json({ error: 'expectedText and transcript are required.' });
-    }
-
-    const cacheKey = `pron:${targetLang}:${expectedText.trim().toLowerCase()}:${transcript.trim().toLowerCase()}`;
-    const cachedPron = getCachedTranslation(cacheKey);
-    if (cachedPron) {
-      console.log(`[Server Cache Hit] Pronunciation for ${cacheKey}`);
-      return res.json(cachedPron);
-    }
-
+    if (!expectedText || !transcript) return res.status(400).json({ error: 'expectedText and transcript required' });
     const ai = getGeminiClient();
-    const systemInstruction = `You are Polyglotbot Pronunciation Coach.
-Compare the user's spoken transcript against the expected target text in ${targetLang}.
-Return JSON format:
-{
-  "score": 85, // 0 to 100
-  "transcript": "spoken user text",
-  "feedbackText": "Constructive 2-sentence encouraging review",
-  "strengths": ["Clear vowel sounds", "Good cadence"],
-  "improvements": ["Soften the 'r' rolling slightly", "Watch stress on second syllable"],
-  "phoneticComparison": "Expected: [phonetics] vs Heard: [phonetics]"
-}`;
-
-    const prompt = `Expected: "${expectedText}"
-User Spoken Transcript: "${transcript}"
-Target Language: ${targetLang}`;
-
-    const response = await callGeminiWithFallback(ai, {
-      contents: prompt,
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-      },
+    const r = await callGemini(ai, {
+      contents: `Expected: "${expectedText}". Spoken: "${transcript}". Language: ${targetLang}. Score pronunciation 0-100. Return JSON: {score,transcript,feedbackText,strengths:[],improvements:[],phoneticComparison}`,
+      config: { systemInstruction: 'Return JSON pronunciation feedback.', responseMimeType: 'application/json' },
     });
-
-    const feedback = JSON.parse(response.text || '{}');
-    setCachedTranslation(cacheKey, feedback);
-    return res.json(feedback);
-  } catch (error: any) {
-    console.error('Pronunciation check error:', error);
-    return res.status(500).json({ error: 'Failed to check pronunciation.' });
-  }
+    res.json(JSON.parse(r.text || '{}'));
+  } catch (e: any) { res.status(500).json({ error: 'Pronunciation check failed' }); }
 });
 
-// 5. URBAN SLANG & CULTURAL PHRASES DISCOVERY
+// 7. URBAN SLANG
 app.post('/api/generate-urban-slang', async (req, res) => {
   try {
     const { targetLang = 'el', category = 'street slang' } = req.body;
-    const cacheKey = `slang:${targetLang}:${category.trim().toLowerCase()}`;
-    const cachedSlang = getCachedTranslation(cacheKey);
-    if (cachedSlang) {
-      console.log(`[Server Cache Hit] Urban Slang for ${cacheKey}`);
-      return res.json(cachedSlang);
-    }
-
+    const ck = `slang:${targetLang}:${category}`;
+    const cached = cacheGet(ck);
+    if (cached) return res.json(cached);
     const ai = getGeminiClient();
-
-    const systemInstruction = `You are Polyglotbot Urban Culture & Slang Expert.
-Generate 6 authentic native street slang phrases, idioms, and colloquialisms used by young natives in ${targetLang}.
-Return JSON format:
-{
-  "slangList": [
-    {
-      "phrase": "Native slang phrase",
-      "phonetic": "phonetic guide",
-      "meaning": "natural English meaning",
-      "literalTranslation": "word-for-word translation",
-      "culturalNote": "context, nuance, when to use or avoid",
-      "register": "urban/slang"
-    }
-  ]
-}`;
-
-    const response = await callGeminiWithFallback(ai, {
-      contents: `Generate native slang for language code ${targetLang} under category ${category}`,
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-      },
+    const r = await callGemini(ai, {
+      contents: `Generate 6 ${category} phrases in ${targetLang}. Return JSON: {slangList:[{phrase,phonetic,meaning,literalTranslation,culturalNote,register}]}`,
+      config: { systemInstruction: 'Return JSON.', responseMimeType: 'application/json' },
     });
-
-    const data = JSON.parse(response.text || '{"slangList":[]}');
-    setCachedTranslation(cacheKey, data);
-    return res.json(data);
-  } catch (error: any) {
-    console.error('Slang generation error:', error);
-    return res.status(500).json({ error: 'Failed to generate slang expressions.' });
-  }
+    const data = JSON.parse(r.text || '{"slangList":[]}');
+    cacheSet(ck, data);
+    res.json(data);
+  } catch (e: any) { res.status(500).json({ error: 'Slang failed' }); }
 });
 
-// 5. STARTER 100-CARD LEVEL DECK GENERATOR
+// 8. STARTER DECK
 app.post('/api/generate-starter-deck', async (req, res) => {
   try {
     const { targetLang = 'el', langName = 'Greek' } = req.body;
-
-    const cacheKey = `starter_deck:${targetLang}`;
-    const cachedDeck = getCachedTranslation(cacheKey);
-    if (cachedDeck) {
-      console.log(`[Cache Hit] Starter deck for ${targetLang}`);
-      return res.json(cachedDeck);
-    }
-
+    const ck = `deck:${targetLang}`;
+    const cached = cacheGet(ck);
+    if (cached) return res.json(cached);
     const ai = getGeminiClient();
-
-    const systemInstruction = `You are Polyglotbot Master Language Curriculum Creator.
-Generate a high-yield learning deck of 32 essential expressions for ${langName} (${targetLang}) structured into 4 mastery levels (8 items per level):
-- Level 1: Core Greetings & Essentials
-- Level 2: Travel, Dining & Directions
-- Level 3: Everyday Conversations & Grammar Patterns
-- Level 4: Native Slang, Culture & Idioms
-
-Return JSON structure:
-{
-  "levels": [
-    {
-      "levelNumber": 1,
-      "levelTitle": "Level 1: Core Greetings & Essentials",
-      "description": "Fundamental hellos, thank yous, and polite survival words",
-      "items": [
-        {
-          "sourceText": "Hello / Hi",
-          "translatedText": "native target script",
-          "phonetic": "English phonetic transliteration",
-          "grammarNote": "English explanation of grammar rule or usage context",
-          "tags": ["Level 1", "Greetings"]
-        }
-      ]
-    },
-    {
-      "levelNumber": 2,
-      "levelTitle": "Level 2: Travel, Dining & Directions",
-      "description": "Essential travel phrases for food, places, and navigating",
-      "items": [...]
-    },
-    {
-      "levelNumber": 3,
-      "levelTitle": "Level 3: Everyday Conversations & Grammar",
-      "description": "Connecting phrases and key grammatical sentence structures",
-      "items": [...]
-    },
-    {
-      "levelNumber": 4,
-      "levelTitle": "Level 4: Native Slang & Idiom Mastery",
-      "description": "Authentic local slang and street expressions used by young natives",
-      "items": [...]
-    }
-  ]
-}
-IMPORTANT:
-- "translatedText" MUST be in the native target language script.
-- "sourceText" MUST be in clear English.
-- "grammarNote" MUST be in English explaining the grammar or context.
-- "phonetic" MUST be easy Latin transliteration for English speakers.`;
-
-    const response = await callGeminiWithFallback(ai, {
-      contents: `Generate master 32-phrase 4-level learning path deck for language ${langName} (${targetLang})`,
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-      },
+    const r = await callGemini(ai, {
+      contents: `Generate 32-phrase 4-level learning deck for ${langName} (${targetLang}). Return JSON: {levels:[{levelNumber,levelTitle,description,items:[{sourceText,translatedText,phonetic,grammarNote,tags}]}]}. Grammar notes in English, phonetics in Latin.`,
+      config: { systemInstruction: 'Return JSON.', responseMimeType: 'application/json' },
     });
-
-    const deckData = JSON.parse(response.text || '{"levels":[]}');
-    setCachedTranslation(cacheKey, deckData);
-    return res.json(deckData);
-  } catch (error: any) {
-    console.error('Starter deck generation error:', error);
-    return res.status(500).json({ error: 'Failed to generate starter deck.' });
-  }
+    const data = JSON.parse(r.text || '{"levels":[]}');
+    cacheSet(ck, data);
+    res.json(data);
+  } catch (e: any) { res.status(500).json({ error: 'Deck generation failed' }); }
 });
 
-// VITE MIDDLEWARE & STATIC SERVER
-async function startServer() {
+// VITE + STATIC
+async function start() {
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
+    const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    const dist = path.join(process.cwd(), 'dist');
+    app.use(express.static(dist));
+    app.get('*', (_, res) => res.sendFile(path.join(dist, 'index.html')));
   }
-
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Polyglotbot server running on http://localhost:${PORT}`);
-  });
+  app.listen(PORT, '0.0.0.0', () => console.log(`Polyglotbot running on http://localhost:${PORT}`));
 }
-
-startServer();
+start();

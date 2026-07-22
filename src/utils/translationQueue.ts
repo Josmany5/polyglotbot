@@ -13,7 +13,6 @@ interface CachedTranslation {
   cachedAt: number;
 }
 
-// Get cached translation for a phrase ID + language
 export function getCachedCoreTranslation(phraseId: string, lang: LanguageCode): CachedTranslation | null {
   try {
     const key = `${STORAGE_PREFIX}${lang}`;
@@ -26,7 +25,6 @@ export function getCachedCoreTranslation(phraseId: string, lang: LanguageCode): 
   }
 }
 
-// Save translation to localStorage
 export function setCachedCoreTranslation(phraseId: string, lang: LanguageCode, translation: CachedTranslation): void {
   try {
     const key = `${STORAGE_PREFIX}${lang}`;
@@ -39,7 +37,6 @@ export function setCachedCoreTranslation(phraseId: string, lang: LanguageCode, t
   }
 }
 
-// Load all cached translations for a language
 export function loadAllCachedTranslations(lang: LanguageCode): Record<string, CachedTranslation> {
   try {
     const key = `${STORAGE_PREFIX}${lang}`;
@@ -50,7 +47,6 @@ export function loadAllCachedTranslations(lang: LanguageCode): Record<string, Ca
   }
 }
 
-// Translate a single phrase via the API
 async function translateOne(
   english: string,
   targetLang: LanguageCode
@@ -59,73 +55,66 @@ async function translateOne(
     const response = await fetch('/api/translate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: english,
-        sourceLang: 'en',
-        targetLang,
-      }),
+      body: JSON.stringify({ text: english, sourceLang: 'en', targetLang }),
     });
-
     if (!response.ok) return null;
-
     const data = await response.json();
     return {
       translated: data.translatedText || '',
       phonetic: data.overallPhonetic || '',
       grammarNote: data.grammarNotes?.[0] || undefined,
     };
-  } catch (err) {
-    console.warn('Core phrase translation failed:', err);
+  } catch {
     return null;
   }
 }
 
-// Queue-based translation manager
+interface QueueJob {
+  items: Array<{ id: string; english: string }>;
+  lang: LanguageCode;
+  packId: string;
+  onProgress?: (completed: number, total: number) => void;
+  onComplete?: () => void;
+  onError?: (phraseId: string) => void;
+}
+
 class TranslationQueue {
-  private queue: Array<{ id: string; english: string }> = [];
+  private jobs: QueueJob[] = [];
   private running = false;
   private lang: LanguageCode = 'en';
-  private onProgress?: (completed: number, total: number) => void;
-  private onComplete?: () => void;
-  private onError?: (phraseId: string) => void;
-  private total = 0;
   private activePackId: string | null = null;
 
-  // Preload next packs (call after language change or pack unlock)
-  preloadPack(
-    items: Array<{ id: string; english: string }>,
-    targetLang: LanguageCode,
-    packId: string,
-    priority: boolean = false
-  ): void {
-    // Filter to only uncached items
-    const uncached = items.filter((item) => !getCachedCoreTranslation(item.id, targetLang));
-    if (uncached.length === 0) return;
-
-    // If a pack is already running with higher priority, don't interrupt
-    if (this.running && this.activePackId && !priority) {
-      // Queue items after current batch
-      this.queue.push(...uncached);
-      return;
-    }
-
-    // If priority, clear existing queue and start fresh
-    if (priority) {
-      this.queue = [];
-    }
-
-    this.queue = [...this.queue, ...uncached];
-    this.lang = targetLang;
-    this.total = this.queue.length;
-    this.activePackId = packId;
-
+  // Append items to the queue. Never clears existing jobs.
+  // If nothing is running, start processing.
+  private enqueue(job: QueueJob): void {
+    this.jobs.push(job);
+    this.lang = job.lang;
+    this.activePackId = job.packId;
     if (!this.running) {
       this.running = true;
       this.run();
     }
   }
 
-  async processQueue(
+  // Preload: silent background translation (no callbacks, no UI updates)
+  preloadPack(
+    items: Array<{ id: string; english: string }>,
+    targetLang: LanguageCode,
+    packId: string
+  ): void {
+    const uncached = items.filter((item) => !getCachedCoreTranslation(item.id, targetLang));
+    if (uncached.length === 0) return;
+
+    this.enqueue({
+      items: uncached,
+      lang: targetLang,
+      packId,
+    });
+    console.log(`TranslationQueue: preloaded Pack ${packId} (${uncached.length} uncached phrases)`);
+  }
+
+  // User-triggered: translates with UI progress/complete callbacks
+  processQueue(
     items: Array<{ id: string; english: string }>,
     targetLang: LanguageCode,
     callbacks: {
@@ -134,77 +123,77 @@ class TranslationQueue {
       onError?: (phraseId: string) => void;
     },
     packId?: string
-  ): Promise<void> {
-    // Block if another pack is actively processing with priority
-    if (this.running) {
-      console.warn('TranslationQueue: already running, queueing instead');
-    }
-
+  ): void {
     const uncached = items.filter((item) => !getCachedCoreTranslation(item.id, targetLang));
-    this.queue = [...uncached];
-    this.lang = targetLang;
-    this.onProgress = callbacks.onProgress;
-    this.onComplete = callbacks.onComplete;
-    this.onError = callbacks.onError;
-    this.total = uncached.length;
-    this.activePackId = packId || null;
-
-    if (!this.running && this.queue.length > 0) {
-      this.running = true;
-      await this.run();
-    } else if (this.running) {
-      // Return after current run completes with callbacks attached
-      await this.waitForCompletion();
+    if (uncached.length === 0) {
+      // Already all cached — fire complete immediately
+      callbacks.onProgress?.(uncached.length, uncached.length);
+      callbacks.onComplete?.();
+      return;
     }
-  }
 
-  private async waitForCompletion(): Promise<void> {
-    return new Promise((resolve) => {
-      const check = setInterval(() => {
-        if (!this.running) {
-          clearInterval(check);
-          this.onComplete?.();
-          resolve();
-        }
-      }, 500);
+    this.enqueue({
+      items: uncached,
+      lang: targetLang,
+      packId: packId || `pack-${Date.now()}`,
+      onProgress: callbacks.onProgress,
+      onComplete: callbacks.onComplete,
+      onError: callbacks.onError,
     });
+    console.log(`TranslationQueue: processing Pack ${packId} (${uncached.length} uncached phrases)`);
   }
 
+  // Process jobs sequentially. Each job runs to completion before the next starts.
   private async run(): Promise<void> {
-    let completed = 0;
-    const total = this.total;
+    while (this.jobs.length > 0) {
+      const job = this.jobs[0]; // peek, don't shift yet (we process item by item)
+      this.activePackId = job.packId;
+      this.lang = job.lang;
 
-    while (this.queue.length > 0) {
-      const item = this.queue.shift()!;
+      let completed = 0;
+      const total = job.items.length;
 
-      // Check if already cached
-      const cached = getCachedCoreTranslation(item.id, this.lang);
-      if (!cached) {
-        // Translate via API
-        const result = await translateOne(item.english, this.lang);
-        if (result) {
-          setCachedCoreTranslation(item.id, this.lang, {
-            translated: result.translated,
-            phonetic: result.phonetic,
-            grammarNote: result.grammarNote,
-            cachedAt: Date.now(),
-          });
-        } else {
-          this.onError?.(item.id);
+      // Process this job's items one by one with 4-second gaps
+      for (let i = 0; i < job.items.length; i++) {
+        const item = job.items[i];
+
+        const cached = getCachedCoreTranslation(item.id, job.lang);
+        if (!cached) {
+          const result = await translateOne(item.english, job.lang);
+          if (result) {
+            setCachedCoreTranslation(item.id, job.lang, {
+              translated: result.translated,
+              phonetic: result.phonetic,
+              grammarNote: result.grammarNote,
+              cachedAt: Date.now(),
+            });
+          } else {
+            job.onError?.(item.id);
+          }
+        }
+
+        completed++;
+        job.onProgress?.(completed, total);
+
+        // 4-second gap between API calls
+        if (i < job.items.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 4000));
         }
       }
 
-      completed++;
-      this.onProgress?.(completed, total);
+      // Job complete — fire callback and remove from queue
+      job.onComplete?.();
+      this.jobs.shift();
 
-      // 4-second gap between API calls (respect 15 RPM limit)
-      if (this.queue.length > 0) {
-        await new Promise((resolve) => setTimeout(resolve, 4000));
+      // If next job exists, log it
+      if (this.jobs.length > 0) {
+        const next = this.jobs[0];
+        console.log(`TranslationQueue: starting next job Pack ${next.packId} (${next.items.length} phrases)`);
       }
     }
 
     this.running = false;
-    this.onComplete?.();
+    this.activePackId = null;
   }
 
   isRunning(): boolean {
@@ -215,12 +204,16 @@ class TranslationQueue {
     return this.activePackId;
   }
 
+  // Count remaining items across all jobs
+  remainingCount(): number {
+    return this.jobs.reduce((sum, j) => sum + j.items.length, 0);
+  }
+
   clear(): void {
-    this.queue = [];
+    this.jobs = [];
     this.running = false;
     this.activePackId = null;
   }
 }
 
-// Singleton queue instance
 export const coreTranslationQueue = new TranslationQueue();

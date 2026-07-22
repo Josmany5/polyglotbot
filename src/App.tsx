@@ -14,7 +14,12 @@ import { DEFAULT_FOLDERS, SAMPLE_SAVED_PHRASES } from './data/languages';
 import { Check } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabType>('curriculum');
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    try {
+      const saved = localStorage.getItem('polyglotbot_active_tab');
+      return (saved as TabType) || 'translator';
+    } catch { return 'translator'; }
+  });
   const [unlockedPackIds, setUnlockedPackIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('polyglotbot_unlocked_packs');
@@ -53,6 +58,23 @@ export default function App() {
 
   // Toast state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Global target language — persisted, shared across tabs
+  const [globalTargetLang, setGlobalTargetLang] = useState<LanguageCode>(() => {
+    try {
+      const saved = localStorage.getItem('polyglotbot_global_lang');
+      return (saved as LanguageCode) || 'el';
+    } catch { return 'el'; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('polyglotbot_global_lang', globalTargetLang); } catch {}
+  }, [globalTargetLang]);
+
+  // Persist active tab
+  useEffect(() => {
+    try { localStorage.setItem('polyglotbot_active_tab', activeTab); } catch {}
+  }, [activeTab]);
 
   useEffect(() => {
     try {
@@ -300,22 +322,25 @@ export default function App() {
     }[],
     packId?: string
   ) => {
-    // Track pack as unlocked
+    // Track pack as unlocked (state update runs first, guard runs second)
     if (packId) {
+      let alreadyUnlocked = false;
       setUnlockedPackIds((prev) => {
-        if (prev.includes(packId)) return prev;
+        if (prev.includes(packId)) {
+          alreadyUnlocked = true;
+          return prev;
+        }
         return [...prev, packId];
       });
 
-      // Avoid re-creating duplicate phrases for already-unlocked packs
-      const alreadyUnlocked = unlockedPackIds.includes(packId);
-      if (alreadyUnlocked) {
+      // Guard: don't re-create folder/phrases for already-unlocked packs
+      if (alreadyUnlocked || unlockedPackIds.includes(packId)) {
         showToast('Pack already unlocked — scroll to your flashcards to study!');
         return;
       }
     }
 
-    // Find or create folder
+    // Find existing folder by exact name match
     let targetFolder = folders.find((f) => f.name === folderName);
     let folderId = targetFolder?.id;
 
@@ -332,23 +357,34 @@ export default function App() {
       setFolders((prev) => [targetFolder!, ...prev]);
     }
 
-    // Add new phrases avoiding duplicates
-    const newPhrases: SavedPhrase[] = items.map((item, idx) => ({
-      id: `pack-item-${Date.now()}-${idx}`,
-      folderId: folderId!,
-      sourceText: item.sourceText,
-      translatedText: item.translatedText,
-      sourceLang: item.sourceLang,
-      targetLang: item.targetLang,
-      phonetic: item.phonetic,
-      notes: item.notes,
-      masteryLevel: 'learning',
-      tags: item.tags,
-      createdAt: Date.now() - idx * 10,
-    }));
+    // Add new phrases (deduplicate by checking existing phrase IDs)
+    setPhrases((prev) => {
+      const newPhrases: SavedPhrase[] = items
+        .filter((item) =>
+          !prev.some(
+            (p) =>
+              p.sourceText.toLowerCase().trim() === item.sourceText.toLowerCase().trim() &&
+              p.targetLang === item.targetLang
+          )
+        )
+        .map((item, idx) => ({
+          id: `pack-item-${Date.now()}-${idx}`,
+          folderId: folderId!,
+          sourceText: item.sourceText,
+          translatedText: item.translatedText,
+          sourceLang: item.sourceLang,
+          targetLang: item.targetLang,
+          phonetic: item.phonetic,
+          notes: item.notes,
+          masteryLevel: 'learning' as const,
+          tags: item.tags,
+          createdAt: Date.now() - idx * 10,
+        }));
 
-    setPhrases((prev) => [...newPhrases, ...prev]);
-    showToast(`Unlocked "${folderName}"! ${newPhrases.length} cards added to Flashcards & Phrasebook.`);
+      return [...newPhrases, ...prev];
+    });
+
+    showToast(`Unlocked "${folderName}"! ${items.length} cards added to Flashcards & Phrasebook.`);
   };
 
   const handleLoadStarterDeck = (newFolders: Folder[], newPhrases: SavedPhrase[]) => {
@@ -394,6 +430,8 @@ export default function App() {
             onAutoSavePhrase={handleAutoSavePhrase}
             onSaveQuickPracticeBatch={handleSaveQuickPracticeBatch}
             folders={folders}
+            globalTargetLang={globalTargetLang}
+            onGlobalTargetLangChange={setGlobalTargetLang}
           />
         )}
 
