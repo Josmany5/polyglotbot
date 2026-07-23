@@ -11,7 +11,6 @@ import {
   Plus,
   Download,
   Upload,
-  Sparkles,
 } from 'lucide-react';
 
 interface PhrasebookTabProps {

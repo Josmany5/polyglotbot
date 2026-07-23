@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { LanguageCode, TranslationResult, Folder } from '../types';
 import { LANGUAGES } from '../data/languages';
-import { playBase64Audio, speakWebSpeech, playTextToSpeech } from '../utils/audio';
+import { playTextToSpeech } from '../utils/audio';
 import { getCacheItem, setCacheItem, getTranslationKey } from '../utils/cacheStore';
 import {
   ArrowRightLeft,
@@ -51,10 +51,7 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
   folders,
 }) => {
   const [sourceLang, setSourceLang] = useState<LanguageCode>('en');
-  const [targetLang, setTargetLang] = useState<LanguageCode>(() => {
-    try { const s = localStorage.getItem('polyglotbot_global_lang'); return (s as LanguageCode) || 'el'; }
-    catch { return 'el'; }
-  });
+  const [targetLang, setTargetLang] = useState<LanguageCode>('el');
   const [inputText, setInputText] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [translationResult, setTranslationResult] = useState<TranslationResult | null>(null);
@@ -63,7 +60,6 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
   const [isPlayingAudio, setIsPlayingAudio] = useState<boolean>(false);
   const [isListening, setIsListening] = useState<boolean>(false);
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const recognitionRef = useRef<any>(null);
 
   // Quick Practice — AI generates fresh phrases each click, tracks used to avoid repeats
@@ -88,6 +84,8 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
   const labelsPerPage = 6;
   const [practicePage, setPracticePage] = useState<number>(0);
   const [practicingCategory, setPracticingCategory] = useState<string | null>(null);
+  const [practiceCooldown, setPracticeCooldown] = useState<number>(0);
+  const practicePoolRef = useRef<Record<string, Array<{ english: string; translated: string; phonetic: string }>>>({});
   const maxPage = Math.ceil(practiceCategories.length / labelsPerPage);
   const visibleCategories = practiceCategories.slice(
     (practicePage % maxPage) * labelsPerPage,
@@ -115,61 +113,95 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
   };
 
   const handlePracticeClick = async (category: string) => {
-    if (practicingCategory) return; // block double-click
+    if (practicingCategory || practiceCooldown > Date.now()) return;
     setPracticingCategory(category);
     setIsLoading(true);
 
+    const cacheKey = `practice_${targetLang}_${category.replace(/[^\w]/g, '')}`;
+    const pool = practicePoolRef.current[cacheKey] || [];
+    
     try {
       const used = getUsedPhrases(category, targetLang);
       const res = await fetch('/api/generate-practice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          category: category.replace(/^[^\s]+\s/, ''), // Remove emoji
+          category: category.replace(/^[^\s]+\s/, ''),
           targetLang,
           usedPhrases: used,
         }),
       });
 
+      let english = '';
+      let translated = '';
+      let phonetic = '';
+      let slangInsights: any[] = [];
+      let grammarNotes: string[] = [];
+
       if (res.ok) {
         const data = await res.json();
-        const english = data.english || '';
-        const translated = data.translated || '';
-        const phonetic = data.phonetic || '';
+        english = data.english || '';
+        translated = data.translated || '';
+        phonetic = data.phonetic || '';
+        slangInsights = data.slangInsights || [];
+        grammarNotes = data.grammarNotes || [];
 
+        // Cache this result in local pool for rate-limit fallback
+        if (english && translated) {
+          pool.unshift({ english, translated, phonetic });
+          if (pool.length > 10) pool.pop();
+          practicePoolRef.current[cacheKey] = pool;
+        }
+      } else if (res.status === 429) {
+        // Rate limited — use a cached pool phrase instead
+        const fallback = pool[Math.floor(Math.random() * pool.length)];
+        if (fallback) {
+          english = fallback.english;
+          translated = fallback.translated;
+          phonetic = fallback.phonetic;
+          console.log('Rate limited, using cached practice phrase:', english);
+        }
+      }
+
+      if (english) {
         setInputText(english);
         addUsedPhrase(category, targetLang, english);
-
-        // Simulate a translation result so it renders in the output panel
+        
         const fakeResult: TranslationResult = {
           sourceLang: 'en',
           targetLang,
           sourceText: english,
           translatedText: translated,
           overallPhonetic: phonetic,
-          sentences: [{
-            sourceSentence: english,
-            translatedSentence: translated,
-            phonetic,
-            wordBreakdown: [],
-          }],
-          slangInsights: data.slangInsights || [],
-          grammarNotes: data.grammarNotes || [],
-          alternativeTranslations: data.alternativeTranslations || [],
+          sentences: [{ sourceSentence: english, translatedSentence: translated, phonetic, wordBreakdown: [] }],
+          slangInsights,
+          grammarNotes,
+          alternativeTranslations: [],
           formalityLevel: 'neutral',
         };
         setTranslationResult(fakeResult);
       }
     } catch (e) {
       console.warn('Practice phrase generation failed:', e);
+      // Fallback to pool
+      const fallback = pool[Math.floor(Math.random() * pool.length)];
+      if (fallback) {
+        setInputText(fallback.english);
+        setTranslationResult({
+          sourceLang: 'en', targetLang, sourceText: fallback.english,
+          translatedText: fallback.translated, overallPhonetic: fallback.phonetic,
+          sentences: [], slangInsights: [], grammarNotes: [], alternativeTranslations: [],
+          formalityLevel: 'neutral',
+        });
+      }
     } finally {
+      // 5-second cooldown to prevent rapid-fire API hits
+      setPracticeCooldown(Date.now() + 5000);
+      setTimeout(() => setPracticeCooldown(0), 5000);
       setIsLoading(false);
       setPracticingCategory(null);
     }
   };
-
-  // Client-side translation cache for instant 0ms response
-  const clientCacheRef = useRef<Map<string, TranslationResult>>(new Map());
 
   const handleTranslate = async (textToTranslate?: string, srcL = sourceLang, tgtL = targetLang) => {
     const text = textToTranslate !== undefined ? textToTranslate : inputText;
@@ -205,20 +237,10 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
     }
   };
 
-  // Debounced auto-translation on typing with instant cache lookup
+  // No auto-translate — user must click Translate Now or use Quick Practice
   useEffect(() => {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    if (!inputText.trim()) { setTranslationResult(null); return; }
-
-    const cacheKey = getTranslationKey(sourceLang, targetLang, inputText);
-    const instantCached = getCacheItem<TranslationResult>(cacheKey);
-    if (instantCached) { setTranslationResult(instantCached); return; }
-
-    debounceTimerRef.current = setTimeout(() => { handleTranslate(); }, 350);
-    return () => { if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current); };
-  }, [inputText, sourceLang, targetLang]);
-
-  useEffect(() => { handleTranslate(); }, []);
+    if (!inputText.trim()) setTranslationResult(null);
+  }, [inputText]);
 
   const handleSwapLanguages = () => {
     if (sourceLang === 'auto') return;
@@ -307,7 +329,7 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
           </button>
           <div className="w-full sm:w-auto flex items-center space-x-2">
             <span className="text-xs font-black uppercase tracking-wider text-[#636E72]">To</span>
-            <select value={targetLang} onChange={(e) => { const lang = e.target.value as LanguageCode; setTargetLang(lang); try { localStorage.setItem('polyglotbot_global_lang', lang); } catch {} }} className="w-full sm:w-auto bg-[#FFE66D] text-[#2D3436] px-4 py-2 text-sm font-black rounded-xl border-2 border-[#2D3436] shadow-[2px_2px_0px_0px_rgba(45,52,54,1)] outline-none cursor-pointer">
+            <select value={targetLang} onChange={(e) => setTargetLang(e.target.value as LanguageCode)} className="w-full sm:w-auto bg-[#FFE66D] text-[#2D3436] px-4 py-2 text-sm font-black rounded-xl border-2 border-[#2D3436] shadow-[2px_2px_0px_0px_rgba(45,52,54,1)] outline-none cursor-pointer">
               {LANGUAGES.map((l) => (<option key={l.code} value={l.code}>{l.flag} {l.name}</option>))}
             </select>
           </div>

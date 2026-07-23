@@ -59,18 +59,6 @@ export default function App() {
   // Toast state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Global target language — persisted, shared across tabs
-  const [globalTargetLang, setGlobalTargetLang] = useState<LanguageCode>(() => {
-    try {
-      const saved = localStorage.getItem('polyglotbot_global_lang');
-      return (saved as LanguageCode) || 'el';
-    } catch { return 'el'; }
-  });
-
-  useEffect(() => {
-    try { localStorage.setItem('polyglotbot_global_lang', globalTargetLang); } catch {}
-  }, [globalTargetLang]);
-
   // Persist active tab
   useEffect(() => {
     try { localStorage.setItem('polyglotbot_active_tab', activeTab); } catch {}
@@ -430,8 +418,6 @@ export default function App() {
             onAutoSavePhrase={handleAutoSavePhrase}
             onSaveQuickPracticeBatch={handleSaveQuickPracticeBatch}
             folders={folders}
-            globalTargetLang={globalTargetLang}
-            onGlobalTargetLangChange={setGlobalTargetLang}
           />
         )}
 

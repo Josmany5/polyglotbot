@@ -6,7 +6,6 @@ import {
   Sparkles,
   Mic,
   Flame,
-  BookmarkCheck,
   GraduationCap,
 } from 'lucide-react';
 
@@ -91,34 +90,10 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             </div>
 
-            {/* Quick Stats on Mobile */}
-            <div className="flex md:hidden items-center space-x-2 text-xs font-bold text-[#2D3436]">
-              <span className="flex items-center px-2.5 py-1 bg-[#4ECDC4]/20 border-2 border-[#2D3436] rounded-xl">
-                <BookmarkCheck className="w-3.5 h-3.5 mr-1 text-[#2D3436]" />
-                {savedCount}
-              </span>
-              <span className="flex items-center px-2.5 py-1 bg-[#FFE66D] border-2 border-[#2D3436] rounded-xl">
-                <Flame className="w-3.5 h-3.5 mr-1 text-[#FF6B6B]" />
-                {masteredCount}
-              </span>
-            </div>
           </div>
 
-          {/* Desktop Stats Ticker */}
-          <div className="hidden md:flex items-center space-x-3 text-xs">
-            <div className="flex items-center px-3 py-1.5 bg-[#4ECDC4]/15 rounded-xl border-2 border-[#2D3436] text-[#2D3436]">
-              <BookmarkCheck className="w-4 h-4 mr-1.5 text-[#2D3436]" />
-              <span>
-                Saved Phrases: <strong className="font-black text-[#2D3436]">{savedCount}</strong>
-              </span>
-            </div>
-            <div className="flex items-center px-3 py-1.5 bg-[#FFE66D] text-[#2D3436] rounded-xl border-2 border-[#2D3436]">
-              <Flame className="w-4 h-4 mr-1.5 text-[#FF6B6B]" />
-              <span>
-                Mastered: <strong className="font-black text-[#2D3436]">{masteredCount}</strong>
-              </span>
-            </div>
-          </div>
+          {/* Desktop Stats — removed per user request */}
+          <div className="hidden md:flex items-center space-x-3 text-xs"></div>
         </div>
 
         {/* Navigation Tabs */}
