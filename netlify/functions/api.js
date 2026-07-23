@@ -59,8 +59,12 @@ exports.handler = async (event) => {
       if (cached) return jsonResponse({ ...cached, isCached: true });
 
       const result = await gemini(
-        `Translate: "${text.trim()}" from ${sourceLang} to ${targetLang}. Return JSON: {"translatedText":"...","overallPhonetic":"...","sentences":[{"sourceSentence":"...","translatedSentence":"...","phonetic":"...","wordBreakdown":[{"original":"...","phonetic":"...","translation":"...","pos":"Noun|Verb|Adj|etc","note":"..."}]}],"slangInsights":[{"phrase":"...","meaning":"...","literalTranslation":"...","culturalNote":"...","register":"casual|urban/slang|idiomatic|polite"}],"grammarNotes":["..."],"alternativeTranslations":["..."],"formalityLevel":"formal|neutral|casual","sourceLang":"${sourceLang}","targetLang":"${targetLang}","detectedSourceLang":"...","sourceText":"${text.trim()}"}. All explanations MUST be in English.`,
-        'You are a language tutor. Return ONLY valid JSON. Phonetic in clear Latin transliteration.'
+        `Translate the following text from ${sourceLang} to ${targetLang}: "${text.trim()}".
+
+Return a JSON object with these fields: translatedText, overallPhonetic, sentences (array of {sourceSentence, translatedSentence, phonetic, wordBreakdown: [{original, phonetic, translation, pos, note}]}), slangInsights (array of {phrase, meaning, literalTranslation, culturalNote, register}), grammarNotes (array of strings), alternativeTranslations (array of strings), formalityLevel.
+
+Write all grammar notes, slang meanings, cultural notes, and word breakdown notes in ${sourceLang}. CRITICAL: In wordBreakdown, "original" MUST be the ${targetLang} word in native script, "translation" MUST be the meaning in ${sourceLang}. Never swap these fields.`,
+        `You are a language tutor. Return ONLY valid JSON — no markdown, no code fences, no additional text. Phonetic must be clear Latin transliteration. Include all specified fields.`
       );
       const data = JSON.parse(stripJson(result));
       cacheSet(ck, data);
