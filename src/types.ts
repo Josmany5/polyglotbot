@@ -56,7 +56,7 @@ export interface TranslationResult {
   sentences: SentenceBreakdown[];
   slangInsights: SlangInsight[];
   grammarNotes: string[];
-  alternativeTranslations: string[];
+  alternativeTranslations: { phrase: string; phonetic: string; literalMeaning: string }[];
   formalityLevel: 'formal' | 'neutral' | 'casual';
 }
 

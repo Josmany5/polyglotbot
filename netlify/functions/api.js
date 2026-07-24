@@ -9,13 +9,18 @@ async function gemini(prompt, systemPrompt = '') {
   let lastErr = null;
   for (const model of MODELS) {
     try {
-      const contents = systemPrompt
-        ? [{ role: 'user', parts: [{ text: systemPrompt + '\n\n' + prompt }] }]
-        : [{ parts: [{ text: prompt }] }];
+      const body = {
+        contents: systemPrompt
+          ? [{ role: 'user', parts: [{ text: systemPrompt + '\n\n' + prompt }] }]
+          : [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+        },
+      };
       const res = await fetch(`${BASE}/${model}:generateContent?key=${GEMINI_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) { const errText = await res.text(); throw new Error(errText); }
       const data = await res.json();
@@ -61,9 +66,9 @@ exports.handler = async (event) => {
       const result = await gemini(
         `Translate the following text from ${sourceLang} to ${targetLang}: "${text.trim()}".
 
-Return a JSON object with these fields: translatedText, overallPhonetic, sentences (array of {sourceSentence, translatedSentence, phonetic, wordBreakdown: [{original, phonetic, translation, pos, note}]}), slangInsights (array of {phrase, meaning, literalTranslation, culturalNote, register}), grammarNotes (array of strings), alternativeTranslations (array of strings), formalityLevel.
+Return a JSON object with these fields: translatedText, overallPhonetic, sentences (array of {sourceSentence, translatedSentence, phonetic, wordBreakdown: [{original, phonetic, translation, pos, note}]}), slangInsights (array of {phrase, meaning, literalTranslation, culturalNote, register}), grammarNotes (array of strings), alternativeTranslations (array of {phrase: "alternative way to say it in ${targetLang}", phonetic: "Latin transliteration", literalMeaning: "literal meaning in ${sourceLang}"}), formalityLevel, sourceLang, targetLang, detectedSourceLang, sourceText. Include 2-4 alternative translations covering formal, neutral, and casual registers.
 
-Write all grammar notes, slang meanings, cultural notes, and word breakdown notes in ${sourceLang}. CRITICAL: In wordBreakdown, "original" MUST be the ${targetLang} word in native script, "translation" MUST be the meaning in ${sourceLang}. Never swap these fields.`,
+Write all grammar notes, slang meanings, cultural notes, word breakdown notes in ${sourceLang}. CRITICAL: In wordBreakdown, "original" MUST be the ${targetLang} word in native script, "translation" MUST be the meaning in ${sourceLang}. Never swap these fields.`,
         `You are a language tutor. Return ONLY valid JSON — no markdown, no code fences, no additional text. Phonetic must be clear Latin transliteration. Include all specified fields.`
       );
       const data = JSON.parse(stripJson(result));

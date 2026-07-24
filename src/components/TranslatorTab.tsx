@@ -56,11 +56,87 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [translationResult, setTranslationResult] = useState<TranslationResult | null>(null);
   const [isCopied, setIsCopied] = useState<boolean>(false);
-  const [activeAnalysisTab, setActiveAnalysisTab] = useState<'words' | 'slang' | 'grammar'>('words');
+  const [activeAnalysisTab, setActiveAnalysisTab] = useState<'words' | 'alternatives' | 'slang' | 'grammar'>('words');
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
   const [isPlayingAudio, setIsPlayingAudio] = useState<boolean>(false);
   const [isListening, setIsListening] = useState<boolean>(false);
   const recognitionRef = useRef<any>(null);
+
+  // Built-in grammar glossary — scans notes for terms and explains them inline
+  const grammarGlossaryDict: Record<string, string> = {
+    'noun': 'A person, place, thing, or idea (e.g., "cat", "house", "love").',
+    'verb': 'An action or state word (e.g., "run", "is", "think").',
+    'adjective': 'A word that describes a noun (e.g., "big", "red", "happy").',
+    'adverb': 'A word that describes a verb, adjective, or another adverb (e.g., "quickly", "very", "well").',
+    'pronoun': 'A word that replaces a noun (e.g., "he", "she", "it", "they").',
+    'preposition': 'A word showing position or relationship (e.g., "in", "on", "under", "with").',
+    'conjunction': 'A connecting word (e.g., "and", "but", "because", "or").',
+    'particle': 'A small word that adds meaning without being a full verb/noun (e.g., "να" in Greek, "to" in English).',
+    'article': 'A word before a noun marking it as definite or indefinite (e.g., "the", "a", "an").',
+    'definite article': 'The word "the" — points to a specific thing (e.g., "the book" = a particular book).',
+    'indefinite article': 'The words "a" or "an" — points to any one of something (e.g., "a book" = any book).',
+    'gender': 'A grammatical category for nouns: masculine, feminine, or neuter. Determines which articles and adjective endings to use.',
+    'masculine': 'Grammatical gender typically for male beings and certain nouns (e.g., "o άντρας" / the man).',
+    'feminine': 'Grammatical gender typically for female beings and certain nouns (e.g., "η γυναίκα" / the woman).',
+    'neuter': 'Grammatical gender for objects and concepts (neither masculine nor feminine, e.g., "το βιβλίο" / the book).',
+    'number': 'Whether a word is singular (one) or plural (more than one).',
+    'singular': 'Referring to exactly one person or thing (e.g., "cat" not "cats").',
+    'plural': 'Referring to more than one person or thing (e.g., "cats" not "cat").',
+    'case': 'The form of a noun/pronoun/adjective showing its grammatical role in the sentence.',
+    'nominative': 'The subject case — the noun doing the action (e.g., "The dog barks" — "dog" is nominative).',
+    'accusative': 'The direct object case — the noun receiving the action (e.g., "I see the dog" — "dog" is accusative).',
+    'dative': 'The indirect object case — the noun receiving the benefit or target (e.g., "I gave the dog a bone" — "dog" is dative).',
+    'genitive': 'The possessive case — shows ownership (e.g., "the man\'s hat" or "of the man").',
+    'vocative': 'The case used when directly addressing someone (e.g., "Hey, John!" — "John" is vocative).',
+    'person': 'Who is doing the action: first person (I/we), second person (you), or third person (he/she/it/they).',
+    'first person': 'The speaker themselves — "I" or "we" (the one(s) talking).',
+    'second person': 'The listener — "you" (the one(s) being spoken to).',
+    'second person plural': 'Addressing "you" to multiple people, or formally to one person (like "y\'all" or the polite "you").',
+    'third person': 'Someone/something else — "he", "she", "it", or "they" (neither speaker nor listener).',
+    'tense': 'When the action happens: past, present, or future.',
+    'present tense': 'Action happening now or generally (e.g., "I walk", "I am walking").',
+    'past tense': 'Action that already happened (e.g., "I walked", "I was walking").',
+    'future tense': 'Action that will happen (e.g., "I will walk", "I am going to walk").',
+    'subjunctive': 'A verb mood used for wishes, possibilities, or hypotheticals — often uses particles like "να" (Greek), "que" (Spanish).',
+    'subjunctive structure': 'A verb pattern expressing a wish, desire, or possibility (e.g., "να πάω" = I wish to go / that I may go).',
+    'imperative': 'A command form — telling someone to do something (e.g., "Go!", "Eat!", "Come here!").',
+    'mood': 'How the speaker feels about the action: stating a fact (indicative), giving a command (imperative), wishing/hoping (subjunctive).',
+    'voice': 'Whether the subject does the action (active voice) or receives it (passive voice).',
+    'active voice': 'Subject performs the action (e.g., "John ate the pizza").',
+    'passive voice': 'Subject receives the action (e.g., "The pizza was eaten by John").',
+    'agreement': 'When words in a sentence must match in gender, number, case, or person (e.g., adjectives must agree with their noun).',
+    'conjugation': 'Changing a verb form based on person, number, tense, or mood (e.g., "I am" vs "you are" vs "he is").',
+    'declension': 'Changing a noun/adjective/adjective ending based on case, number, or gender.',
+    'infinitive': 'The base form of a verb — "to walk", "to eat", "to be" (in Greek, often uses να + verb).',
+    'participle': 'A verb form used as an adjective (e.g., "the running water", "the broken window").',
+    'clitic': 'A small word that attaches to another word, usually unstressed (e.g., "μου" in "δώσε μου" = give me).',
+    'reflexive': 'When the subject does something to itself (e.g., "I wash myself", "I dress myself").',
+    'auxiliary verb': 'A helper verb used with a main verb (e.g., "I have eaten" — "have" is auxiliary; "I am going" — "am" is auxiliary).',
+    'idiomatic expression': 'A phrase whose meaning is not literal but culturally understood (e.g., "break a leg" = good luck).',
+    'fixed idiomatic expression': 'A phrase that is always said the same way and cannot be changed word-for-word without sounding strange.',
+    'register': 'The level of formality: formal (polite, official), neutral (everyday), or casual (slang, among friends).',
+    'formal register': 'Polite, official language — used with strangers, elders, in business.',
+    'neutral register': 'Everyday language — neither too formal nor too casual.',
+    'casual register': 'Relaxed, friendly language — used with friends, peers.',
+    'transliteration': 'Writing a word in a different alphabet using Latin letters (e.g., "γεια" → "geia").',
+    'phonetic': 'A pronunciation guide showing exactly how to say the word.',
+    'root': 'The base part of a word that carries the core meaning (before adding prefixes or suffixes).',
+    'prefix': 'Something added to the beginning of a word that changes its meaning (e.g., "un-" in "unhappy").',
+    'suffix': 'Something added to the end of a word that changes its meaning or grammatical role (e.g., "-ness" in "happiness").',
+  };
+
+  // Extract grammar terms found in any of the grammar notes
+  const getDetectedGrammarTerms = (): [string, string][] => {
+    if (!translationResult?.grammarNotes || translationResult.grammarNotes.length === 0) return [];
+    const combined = translationResult.grammarNotes.join(' ').toLowerCase();
+    const found: [string, string][] = [];
+    Object.entries(grammarGlossaryDict).forEach(([term, definition]) => {
+      if (combined.includes(term.toLowerCase())) {
+        found.push([term, definition]);
+      }
+    });
+    return found;
+  };
 
   // Quick Practice — AI generates fresh phrases each click, tracks used to avoid repeats
   const practiceCategories = [
@@ -394,7 +470,12 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
       {translationResult && (
         <div className="bg-white rounded-[28px] border-4 border-[#2D3436] shadow-[8px_8px_0px_0px_rgba(45,52,54,1)] overflow-hidden">
           <div className="flex items-center space-x-2 p-3 bg-[#F7F3E9] border-b-2 border-[#2D3436] overflow-x-auto">
-            {[{ id: 'words' as const, icon: BookOpen, label: 'Word Breakdown', count: (translationResult.sentences || []).flatMap((s: any) => s.wordBreakdown || []).length, color: '#4ECDC4' }, { id: 'slang' as const, icon: Flame, label: 'Slang & Culture', count: (translationResult.slangInsights || []).length, color: '#FF6B6B' }, { id: 'grammar' as const, icon: Sparkles, label: 'Grammar', count: 0, color: '#FFE66D' }].map((t) => (
+            {[
+              { id: 'words' as const, icon: BookOpen, label: 'Word Breakdown', count: (translationResult.sentences || []).flatMap((s: any) => s.wordBreakdown || []).length, color: '#4ECDC4' },
+              { id: 'alternatives' as const, icon: BookOpen, label: 'Alternatives', count: (translationResult.alternativeTranslations || []).length, color: '#A855F7' },
+              { id: 'slang' as const, icon: Flame, label: 'Slang & Culture', count: (translationResult.slangInsights || []).length, color: '#FF6B6B' },
+              { id: 'grammar' as const, icon: Sparkles, label: 'Grammar', count: (translationResult.grammarNotes || []).length, color: '#FFE66D' }
+            ].map((t) => (
               <button key={t.id} onClick={() => setActiveAnalysisTab(t.id)} className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold transition border-2 ${activeAnalysisTab === t.id ? 'bg-[#2D3436] text-white border-[#2D3436]' : 'bg-white text-[#2D3436] border-transparent hover:border-[#2D3436]'}`}>
                 <t.icon className="w-4 h-4" style={{ color: t.color }} /><span>{t.label} ({t.count})</span>
               </button>
@@ -423,6 +504,42 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
                 ))}
               </div>
             )}
+            {activeAnalysisTab === 'alternatives' && (
+              <div className="space-y-4">
+                <div className="p-4 bg-[#A855F7]/20 rounded-2xl border-2 border-[#2D3436] shadow-[4px_4px_0px_0px_rgba(45,52,54,1)] text-xs text-[#2D3436] font-bold flex items-start space-x-2">
+                  <BookOpen className="w-5 h-5 text-[#A855F7] shrink-0 mt-0.5" />
+                  <div><strong>Alternative Phrases in {LANGUAGES.find(l => l.code === translationResult.targetLang)?.name}:</strong> Different ways to express "{translationResult.sourceText}"</div>
+                </div>
+                {translationResult.alternativeTranslations.length > 0 ? (
+                  <div className="grid grid-cols-1 gap-3">
+                    {translationResult.alternativeTranslations.map((alt: any, idx: number) => {
+                      // Handle both new object format and old string format (from cache)
+                      const phrase = typeof alt === 'string' ? alt : alt.phrase || '';
+                      const phonetic = typeof alt === 'string' ? '' : alt.phonetic || '';
+                      const literalMeaning = typeof alt === 'string' ? '' : alt.literalMeaning || '';
+                      return (
+                        <div key={idx} className="p-4 bg-white rounded-2xl border-2 border-[#2D3436] shadow-[4px_4px_0px_0px_rgba(45,52,54,1)] flex items-center justify-between gap-3">
+                          <div className="space-y-1 min-w-0 flex-1">
+                            <p className="text-sm font-black text-[#2D3436]">{phrase}</p>
+                            {phonetic && <p className="text-xs font-mono font-bold text-[#FF6B6B]">[{phonetic}]</p>}
+                            {literalMeaning && <p className="text-[11px] font-semibold text-[#636E72] italic">"{literalMeaning}"</p>}
+                          </div>
+                          <button
+                            onClick={() => playTextToSpeech(phrase, targetLang, playbackSpeed)}
+                            className="p-2 rounded-xl bg-[#FFE66D] text-[#2D3436] border-2 border-[#2D3436] hover:bg-[#FF6B6B] hover:text-white transition shrink-0 shadow-[2px_2px_0px_0px_rgba(45,52,54,1)]"
+                            title="Listen to alternative"
+                          >
+                            <Volume2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-sm font-bold text-[#636E72]">No alternative translations for this phrase.</p>
+                )}
+              </div>
+            )}
             {activeAnalysisTab === 'slang' && (
               <div className="space-y-4">
                 <div className="p-4 bg-[#FFE66D] rounded-2xl border-2 border-[#2D3436] shadow-[4px_4px_0px_0px_rgba(45,52,54,1)] text-xs text-[#2D3436] font-bold flex items-start space-x-2"><Flame className="w-5 h-5 text-[#FF6B6B] shrink-0 mt-0.5" /><div><strong>Native Urban Culture Insight:</strong> How locals express this in real life!</div></div>
@@ -443,15 +560,35 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
             {activeAnalysisTab === 'grammar' && (
               <div className="space-y-4">
                 {translationResult.grammarNotes.length > 0 && (
-                  <div><h4 className="text-xs font-black uppercase text-[#636E72] mb-2">Grammar Tips</h4>
-                    <ul className="space-y-2">{translationResult.grammarNotes.map((note: string, idx: number) => (<li key={idx} className="flex items-start space-x-2 text-xs font-bold text-[#2D3436] bg-[#4ECDC4]/20 p-3 rounded-xl border-2 border-[#2D3436]"><Sparkles className="w-4 h-4 text-[#FF6B6B] shrink-0 mt-0.5" /><span>{note}</span></li>))}</ul>
+                  <div>
+                    <h4 className="text-xs font-black uppercase text-[#636E72] mb-2">Grammar Tips</h4>
+                    <ul className="space-y-2">
+                      {translationResult.grammarNotes.map((note: string, idx: number) => (
+                        <li key={idx} className="flex items-start space-x-2 text-xs font-bold text-[#2D3436] bg-[#4ECDC4]/20 p-3 rounded-xl border-2 border-[#2D3436]">
+                          <Sparkles className="w-4 h-4 text-[#FF6B6B] shrink-0 mt-0.5" />
+                          <span>{note}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
-                {translationResult.alternativeTranslations.length > 0 && (
-                  <div><h4 className="text-xs font-black uppercase text-[#636E72] mb-2">Alternatives</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{translationResult.alternativeTranslations.map((alt: string, idx: number) => (<div key={idx} className="p-3 bg-white rounded-xl border-2 border-[#2D3436] text-xs font-bold text-[#2D3436] shadow-[2px_2px_0px_0px_rgba(45,52,54,1)]">"{alt}"</div>))}</div>
-                  </div>
-                )}
+                {(() => {
+                  const detected = getDetectedGrammarTerms();
+                  if (detected.length === 0) return null;
+                  return (
+                    <div>
+                      <h4 className="text-xs font-black uppercase text-[#636E72] mb-2">Mini Grammar Glossary</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {detected.map(([term, definition]) => (
+                          <div key={term} className="p-3 bg-[#F7F3E9] rounded-xl border-2 border-[#2D3436] space-y-1">
+                            <p className="text-xs font-black text-[#FF6B6B]">{term}</p>
+                            <p className="text-[11px] font-semibold text-[#2D3436] leading-relaxed">{definition}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>

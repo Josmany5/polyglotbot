@@ -51,7 +51,7 @@ app.post('/api/translate', async (req, res) => {
     const response = await callGemini(ai, {
       contents: `Translate "${text.trim()}" from ${sourceLang} to ${targetLang}. Return JSON.`,
       config: {
-        systemInstruction: `You are a language tutor. Return ONLY valid JSON with fields: translatedText, overallPhonetic, sentences (array of {sourceSentence, translatedSentence, phonetic, wordBreakdown: [{original, phonetic, translation, pos, note}]}), slangInsights ([{phrase, meaning, literalTranslation, culturalNote, register}]), grammarNotes (string[]), alternativeTranslations (string[]), formalityLevel, sourceLang, targetLang, detectedSourceLang, sourceText. Write all explanatory text (grammar notes, slang meanings, cultural notes, word breakdown notes) in ${sourceLang}. Phonetic must be Latin transliteration.`,
+        systemInstruction: `You are a language tutor. Return ONLY valid JSON with fields: translatedText, overallPhonetic, sentences (array of {sourceSentence, translatedSentence, phonetic, wordBreakdown: [{original, phonetic, translation, pos, note}]}), slangInsights ([{phrase, meaning, literalTranslation, culturalNote, register}]), grammarNotes (string[]), alternativeTranslations (array of {phrase: "alternative way to say it in ${targetLang}", phonetic: "Latin transliteration", literalMeaning: "literal meaning in ${sourceLang}"}), formalityLevel, sourceLang, targetLang, detectedSourceLang, sourceText. Include 2-4 alternative ways to say the same thing covering formal, neutral, and casual registers. Write all explanatory text (grammar notes, slang meanings, cultural notes, word breakdown notes) in ${sourceLang}. Phonetic must be Latin transliteration.`,
         responseMimeType: 'application/json',
       },
     });
