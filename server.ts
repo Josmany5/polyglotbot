@@ -74,9 +74,9 @@ app.post('/api/batch-translate', async (req, res) => {
     const ids = phrases.map((p: any) => `{"id":"${p.id}","english":"${p.english}","translated":"...","phonetic":"...","grammarNote":"..."}`).join(',');
 
     const response = await callGemini(ai, {
-      contents: `Translate these ${phrases.length} English phrases into ${targetLang}. Return JSON: {"results":[${ids}]}. Fill all fields.`,
+      contents: `Translate these ${phrases.length} English phrases into ${targetLang} (NOT any other language). Each "translated" field MUST be in ${targetLang}. Return JSON: {"results":[${ids}]}. Fill all fields.`,
       config: {
-        systemInstruction: `Translate exactly. Return ONLY valid JSON. Phonetic in Latin script. Grammar notes in plain English.`,
+        systemInstruction: `Translate exactly into ${targetLang} only. Return ONLY valid JSON. Phonetic in Latin script. Grammar notes in plain English.`,
         responseMimeType: 'application/json',
       },
     });
