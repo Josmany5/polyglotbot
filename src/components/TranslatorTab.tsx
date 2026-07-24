@@ -343,10 +343,11 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
 
     setIsLoading(true);
     try {
+      const langName = LANGUAGES.find(l => l.code === tgtL)?.name || tgtL;
       const response = await fetch('/api/translate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, sourceLang: srcL, targetLang: tgtL }),
+        body: JSON.stringify({ text, sourceLang: srcL, targetLang: tgtL, langName }),
       });
 
       if (!response.ok) throw new Error('Translation failed.');
