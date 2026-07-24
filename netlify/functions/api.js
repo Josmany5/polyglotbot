@@ -43,13 +43,6 @@ function cacheSet(k, v) {
   cache.set(k, v);
 }
 
-function getPath(requestPath) {
-  // Netlify Functions receive path in rawPath or via event.path
-  // We just match the last segment after /api/
-  const url = new URL(requestPath, 'http://localhost');
-  return url.pathname;
-}
-
 exports.handler = async (event) => {
   const path = event.path.replace('/.netlify/functions/api', '');
   const method = event.httpMethod;

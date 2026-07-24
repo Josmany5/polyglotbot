@@ -14,9 +14,7 @@ import {
   Sparkles,
   BookOpen,
   Flame,
-  HelpCircle,
   Loader2,
-  Volume1,
   RotateCcw,
 } from 'lucide-react';
 
