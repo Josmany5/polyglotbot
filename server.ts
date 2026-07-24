@@ -19,6 +19,13 @@ function getGeminiClient() {
   return new GoogleGenAI({ apiKey, httpOptions: { headers: { 'User-Agent': 'aistudio-build' } } });
 }
 
+// Language code → human-readable name (helps Gemini understand the target language)
+const LANG_NAME: Record<string, string> = {
+  el: 'Greek', es: 'Spanish', fr: 'French', de: 'German', it: 'Italian',
+  pt: 'Portuguese', ru: 'Russian', zh: 'Chinese', ja: 'Japanese', ko: 'Korean',
+  ar: 'Arabic', en: 'English',
+};
+
 const cache = new Map<string, any>();
 const MAX_CACHE = 500;
 function cacheGet(k: string) { return cache.get(k); }
@@ -47,11 +54,12 @@ app.post('/api/translate', async (req, res) => {
     const cached = cacheGet(ck);
     if (cached) return res.json({ ...cached, isCached: true });
 
+    const langLabel = LANG_NAME[targetLang] || targetLang;
     const ai = getGeminiClient();
     const response = await callGemini(ai, {
       contents: `Translate "${text.trim()}" from ${sourceLang} to ${targetLang}. Return JSON.`,
       config: {
-        systemInstruction: `You are a language tutor. Return ONLY valid JSON with fields: translatedText, overallPhonetic, sentences (array of {sourceSentence, translatedSentence, phonetic, wordBreakdown: [{original, phonetic, translation, pos, note}]}), slangInsights ([{phrase, meaning, literalTranslation, culturalNote, register}]), grammarNotes (string[]), alternativeTranslations (array of {phrase: "alternative way to say it in ${targetLang}", phonetic: "Latin transliteration", literalMeaning: "literal meaning in ${sourceLang}"}), formalityLevel, sourceLang, targetLang, detectedSourceLang, sourceText. Include 2-4 alternative ways to say the same thing covering formal, neutral, and casual registers. Write all explanatory text (grammar notes, slang meanings, cultural notes) in ${sourceLang}. GRAMMAR NOTES: Include phonetic and English translation inline for any example words (e.g. "'ιδωθούμε' [idouthoúme] means 'we see each other'"). WORD BREAKDOWN NOTES: Use a simple "Meaning: [English] / Used like: [plain explanation]" format. Avoid technical jargon in notes — explain terms simply. Phonetic must be Latin transliteration.`,
+        systemInstruction: `You are a language tutor. Return ONLY valid JSON with fields: translatedText, overallPhonetic, sentences (array of {sourceSentence, translatedSentence, phonetic, wordBreakdown: [{original, phonetic, translation, pos, note}]}), slangInsights ([{phrase, meaning, literalTranslation, culturalNote, register}]), grammarNotes (string[]), alternativeTranslations (array of {phrase: "alternative way to say it in ${langLabel}", phonetic: "Latin transliteration", literalMeaning: "literal meaning in ${sourceLang}"}), formalityLevel, sourceLang, targetLang, detectedSourceLang, sourceText. Include 2-4 alternative ways to say the same thing covering formal, neutral, and casual registers. Write all explanatory text (grammar notes, slang meanings, cultural notes) in ${sourceLang}. GRAMMAR NOTES: Include phonetic and English translation inline for any example words (e.g. "'ιδωθούμε' [idouthoúme] means 'we see each other'"). WORD BREAKDOWN NOTES: Use a simple "Meaning: [English] / Used like: [plain explanation]" format. Avoid technical jargon in notes — explain terms simply. Phonetic must be Latin transliteration.`,
         responseMimeType: 'application/json',
       },
     });
@@ -70,13 +78,14 @@ app.post('/api/batch-translate', async (req, res) => {
     const { phrases, targetLang = 'es' } = req.body;
     if (!Array.isArray(phrases) || !phrases.length) return res.status(400).json({ error: 'phrases required' });
 
+    const langLabel = LANG_NAME[targetLang] || targetLang;
     const ai = getGeminiClient();
     const ids = phrases.map((p: any) => `{"id":"${p.id}","english":"${p.english}","translated":"...","phonetic":"...","grammarNote":"..."}`).join(',');
 
     const response = await callGemini(ai, {
-      contents: `Translate these ${phrases.length} English phrases into ${targetLang} (NOT any other language). Each "translated" field MUST be in ${targetLang}. Return JSON: {"results":[${ids}]}. Fill all fields.`,
+      contents: `Translate these ${phrases.length} English phrases into ${langLabel} (NOT any other language). Each "translated" field MUST be in ${langLabel}. Return JSON: {"results":[${ids}]}. Fill all fields.`,
       config: {
-        systemInstruction: `Translate exactly into ${targetLang} only. Return ONLY valid JSON. Phonetic in Latin script. Grammar notes in plain English.`,
+        systemInstruction: `Translate exactly into ${langLabel} only. Return ONLY valid JSON. Phonetic in Latin script. Grammar notes in plain English.`,
         responseMimeType: 'application/json',
       },
     });
