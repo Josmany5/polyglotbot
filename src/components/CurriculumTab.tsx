@@ -211,12 +211,12 @@ export const CurriculumTab: React.FC<CurriculumTabProps> = ({
                   )}
                   <button
                     onClick={() => handleUnlockPack(pack)}
-                    disabled={isUnlocked || !!translatingPackId}
+                    disabled={isUnlocked || translatingPackId === packId}
                     className={`px-5 py-3 rounded-2xl border-3 border-[#2D3436] shadow-[4px_4px_0px_0px_rgba(45,52,54,1)] font-black text-xs transition flex items-center space-x-2 ${
                       isUnlocked
                         ? 'bg-emerald-100 text-emerald-700 cursor-default'
-                        : translatingPackId
-                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : translatingPackId === packId
+                        ? 'bg-[#FFE66D] text-[#2D3436] cursor-wait'
                         : 'bg-[#FF6B6B] hover:bg-[#ff5252] text-white'
                     }`}
                   >
@@ -229,11 +229,6 @@ export const CurriculumTab: React.FC<CurriculumTabProps> = ({
                       <>
                         <CheckCircle2 className="w-4 h-4" />
                         <span>In Your Library</span>
-                      </>
-                    ) : translatingPackId ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin opacity-50" />
-                        <span>Wait...</span>
                       </>
                     ) : (
                       <>

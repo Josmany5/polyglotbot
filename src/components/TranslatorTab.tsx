@@ -102,11 +102,10 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
     } catch { return []; }
   };
 
-  const addUsedPhrase = (category: string, lang: string, english: string) => {
+  const addUsedPhrase = (category: string, lang: string, text: string) => {
     try {
       const used = getUsedPhrases(category, lang);
-      used.unshift(english);
-      // Keep only last 50 to avoid localStorage bloat
+      used.unshift(text);
       const trimmed = used.slice(0, 50);
       localStorage.setItem(getUsedPhrasesKey(category, lang), JSON.stringify(trimmed));
     } catch {}
@@ -119,7 +118,7 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
 
     const cacheKey = `practice_${targetLang}_${category.replace(/[^\w]/g, '')}`;
     const pool = practicePoolRef.current[cacheKey] || [];
-    
+
     try {
       const used = getUsedPhrases(category, targetLang);
       const res = await fetch('/api/generate-practice', {
@@ -127,77 +126,72 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           category: category.replace(/^[^\s]+\s/, ''),
+          sourceLang,
           targetLang,
           usedPhrases: used,
         }),
       });
 
-      let english = '';
-      let translated = '';
+      let sourceText = '';
+      let targetText = '';
       let phonetic = '';
       let slangInsights: any[] = [];
       let grammarNotes: string[] = [];
 
       if (res.ok) {
         const data = await res.json();
-        english = data.english || '';
-        translated = data.translated || '';
-        phonetic = data.phonetic || '';
+        sourceText = data.phraseInSourceLang || data.english || '';
+        targetText = data.phraseInTargetLang || data.translated || '';
+        phonetic = data.targetPhonetic || data.phonetic || '';
         slangInsights = data.slangInsights || [];
         grammarNotes = data.grammarNotes || [];
 
-        // Cache this result in local pool for rate-limit fallback
-        if (english && translated) {
-          pool.unshift({ english, translated, phonetic });
+        if (sourceText && targetText) {
+          pool.unshift({ english: sourceText, translated: targetText, phonetic });
           if (pool.length > 10) pool.pop();
           practicePoolRef.current[cacheKey] = pool;
         }
       } else if (res.status === 429) {
-        // Rate limited — use a cached pool phrase instead
         const fallback = pool[Math.floor(Math.random() * pool.length)];
         if (fallback) {
-          english = fallback.english;
-          translated = fallback.translated;
+          sourceText = fallback.english;
+          targetText = fallback.translated;
           phonetic = fallback.phonetic;
-          console.log('Rate limited, using cached practice phrase:', english);
         }
       }
 
-      if (english) {
-        setInputText(english);
-        addUsedPhrase(category, targetLang, english);
-        
-        const fakeResult: TranslationResult = {
-          sourceLang: 'en',
+      if (sourceText) {
+        setInputText(sourceText);
+        addUsedPhrase(category, targetLang, sourceText);
+
+        setTranslationResult({
+          sourceLang: sourceLang as LanguageCode,
           targetLang,
-          sourceText: english,
-          translatedText: translated,
+          sourceText,
+          translatedText: targetText,
           overallPhonetic: phonetic,
-          sentences: [{ sourceSentence: english, translatedSentence: translated, phonetic, wordBreakdown: [] }],
+          sentences: [{ sourceSentence: sourceText, translatedSentence: targetText, phonetic, wordBreakdown: [] }],
           slangInsights,
           grammarNotes,
           alternativeTranslations: [],
           formalityLevel: 'neutral',
-        };
-        setTranslationResult(fakeResult);
+        });
       }
     } catch (e) {
       console.warn('Practice phrase generation failed:', e);
-      // Fallback to pool
       const fallback = pool[Math.floor(Math.random() * pool.length)];
       if (fallback) {
         setInputText(fallback.english);
         setTranslationResult({
-          sourceLang: 'en', targetLang, sourceText: fallback.english,
+          sourceLang: sourceLang as LanguageCode, targetLang, sourceText: fallback.english,
           translatedText: fallback.translated, overallPhonetic: fallback.phonetic,
           sentences: [], slangInsights: [], grammarNotes: [], alternativeTranslations: [],
           formalityLevel: 'neutral',
         });
       }
     } finally {
-      // 5-second cooldown to prevent rapid-fire API hits
-      setPracticeCooldown(Date.now() + 5000);
-      setTimeout(() => setPracticeCooldown(0), 5000);
+      setPracticeCooldown(Date.now() + 2000);
+      setTimeout(() => setPracticeCooldown(0), 2000);
       setIsLoading(false);
       setPracticingCategory(null);
     }
@@ -237,10 +231,22 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
     }
   };
 
-  // No auto-translate — user must click Translate Now or use Quick Practice
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
-    if (!inputText.trim()) setTranslationResult(null);
-  }, [inputText]);
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    if (!inputText.trim()) { setTranslationResult(null); return; }
+
+    const cacheKey = getTranslationKey(sourceLang, targetLang, inputText);
+    const cached = getCacheItem<TranslationResult>(cacheKey);
+    if (cached) { setTranslationResult(cached); return; }
+
+    debounceTimerRef.current = setTimeout(() => {
+      handleTranslate(inputText, sourceLang, targetLang);
+    }, 800);
+
+    return () => { if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current); };
+  }, [inputText, sourceLang, targetLang]);
 
   const handleSwapLanguages = () => {
     if (sourceLang === 'auto') return;
@@ -388,7 +394,7 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
       {translationResult && (
         <div className="bg-white rounded-[28px] border-4 border-[#2D3436] shadow-[8px_8px_0px_0px_rgba(45,52,54,1)] overflow-hidden">
           <div className="flex items-center space-x-2 p-3 bg-[#F7F3E9] border-b-2 border-[#2D3436] overflow-x-auto">
-            {[{ id: 'words' as const, icon: BookOpen, label: 'Word Breakdown', count: translationResult.sentences.flatMap((s: any) => s.wordBreakdown).length, color: '#4ECDC4' }, { id: 'slang' as const, icon: Flame, label: 'Slang & Culture', count: translationResult.slangInsights.length, color: '#FF6B6B' }, { id: 'grammar' as const, icon: Sparkles, label: 'Grammar', count: 0, color: '#FFE66D' }].map((t) => (
+            {[{ id: 'words' as const, icon: BookOpen, label: 'Word Breakdown', count: (translationResult.sentences || []).flatMap((s: any) => s.wordBreakdown || []).length, color: '#4ECDC4' }, { id: 'slang' as const, icon: Flame, label: 'Slang & Culture', count: (translationResult.slangInsights || []).length, color: '#FF6B6B' }, { id: 'grammar' as const, icon: Sparkles, label: 'Grammar', count: 0, color: '#FFE66D' }].map((t) => (
               <button key={t.id} onClick={() => setActiveAnalysisTab(t.id)} className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold transition border-2 ${activeAnalysisTab === t.id ? 'bg-[#2D3436] text-white border-[#2D3436]' : 'bg-white text-[#2D3436] border-transparent hover:border-[#2D3436]'}`}>
                 <t.icon className="w-4 h-4" style={{ color: t.color }} /><span>{t.label} ({t.count})</span>
               </button>
@@ -397,7 +403,7 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
           <div className="p-6">
             {activeAnalysisTab === 'words' && (
               <div className="space-y-6">
-                {translationResult.sentences.map((sent: any, sIdx: number) => (
+                {(translationResult.sentences || []).map((sent: any, sIdx: number) => (
                   <div key={sIdx} className="space-y-3">
                     <div className="p-4 bg-[#FFE66D]/30 rounded-2xl border-2 border-[#2D3436]"><p className="font-extrabold text-[#2D3436] text-lg">{sent.translatedSentence}</p>{sent.phonetic && <p className="text-xs text-[#FF6B6B] font-mono font-bold mt-1">[{sent.phonetic}]</p>}<p className="text-xs font-bold text-[#636E72] mt-1">"{sent.sourceSentence}"</p></div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
