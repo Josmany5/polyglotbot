@@ -9,18 +9,13 @@ async function gemini(prompt, systemPrompt = '') {
   let lastErr = null;
   for (const model of MODELS) {
     try {
-      const body = {
-        contents: systemPrompt
-          ? [{ role: 'user', parts: [{ text: systemPrompt + '\n\n' + prompt }] }]
-          : [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-        },
-      };
+      const contents = systemPrompt
+        ? [{ role: 'user', parts: [{ text: systemPrompt + '\n\n' + prompt }] }]
+        : [{ parts: [{ text: prompt }] }];
       const res = await fetch(`${BASE}/${model}:generateContent?key=${GEMINI_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ contents }),
       });
       if (!res.ok) { const errText = await res.text(); throw new Error(errText); }
       const data = await res.json();

@@ -106,3 +106,22 @@ export interface PronunciationFeedback {
   improvements: string[];
   phoneticComparison?: string;
 }
+
+// ─── Conversation Packs ───
+
+export interface ConversationLine {
+  speaker: 'A' | 'B';
+  text: string;
+  translation: string;
+  phonetic?: string;
+  keyVocab?: { word: string; translation: string; phonetic?: string }[];
+}
+
+export interface ConversationPack {
+  id: string;
+  title: string;
+  theme: string;
+  language: LanguageCode;
+  difficulty: 'beginner' | 'intermediate' | 'advanced';
+  lines: ConversationLine[];
+}

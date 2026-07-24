@@ -283,3 +283,160 @@ Every text string across 10+ component files needs this change. ~10 hours of wor
 8. Grammar lessons live in Textbook units, not Classroom
 9. Classroom tests + reinforces what Textbook teaches
 10. Progress tracking per pack (cards reviewed, quiz scores) lives in Classroom
+
+---
+
+## v2 Revisions & Additions (July 2026)
+
+### What changed from the original plan
+
+| Original Idea | Status |
+|---|---|
+| **Phase 2.1** — Strip enrichment from Translator (remove word breakdown, slang, grammar, alternatives tabs) | ❌ **REVERSED** — Translator got richer: added Alternatives tab, audio on everything, grammar glossary, better notes |
+| **Phase 2.2** — Add Google Translate fallback | ❌ Deferred — Gemini is fast enough for now |
+| **Phase 6.1** — Delete old components | ✅ Still planned — merge into Classroom/Textbook |
+| **Phase 3.5** — Enrichment per phrase in packs | ✅ Still planned — use reusable PhraseBreakdown component |
+| All other phases | ✅ Still valid — tabs, units, classroom modes, settings |
+
+### New concepts added
+
+**1. Reusable `<PhraseBreakdown>` component**
+- Extract the 4-tab enrichment system (Words, Alternatives, Slang, Grammar) from TranslatorTab
+- Shared across Translator, Textbook packs, Conversation Packs, Classroom
+- Every phrase everywhere gets the same unified enrichment display
+- Adds "Use in sentence" to word cards (shows parent sentence context)
+
+**2. Conversation Packs**
+- Mini-dialogues between 2 speakers on real-life topics
+- Each line: target text → translation → key vocab → audio
+- **In Translator**: shows contextually below translation (e.g., translate "coffee" → "Ordering Coffee" pack appears)
+- **In Textbook**: dedicated section alongside Core Packs and Custom Packs
+- **In Classroom**: roleplay mode — practice each side of dialogue
+- Pre-write 10-15 core packs as JSON; AI generates more on demand
+
+**3. Per-language Knowledge Base** (reduce AI dependency)
+- `src/data/languages/el.ts`, `fr.ts`, etc.
+- Contains: 500+ common words pre-translated, core grammar pattern templates, phonetic rules
+- Client-side word breakdown lookup: if word is in KB, skip AI call entirely
+- Grammar tips from templates instead of AI generation
+- Biggest AI-reduction feature — ~1-2 weeks per language but covers 80% of everyday phrases
+
+**4. Language-aware rendering config**
+- `src/data/languageConfig.ts` — per-language rules (script type, cases, gender, word order, phonetic system)
+- UI dynamically shows/hides relevant sections per language
+- Greek → show case info; Japanese → show politeness levels; etc.
+
+**5. Custom Packs reimagined**
+- Instead of manual paste → translate, now "Generate 25 phrases about [topic]"
+- AI batch-generates a full pack in one click
+- Stored locally, appears in Textbook alongside core packs
+- Same as Quick Practice but creates a permanent pack
+
+**6. "Use in sentence" on word cards**
+- Each word in word breakdown shows the full sentence it came from with the word highlighted
+- Already technically possible (every word has a parent sentence) — just needs UI
+
+### Revised file changes
+
+#### New files to create
+- `src/components/PhraseBreakdown.tsx` — reusable enrichment component (extracted from TranslatorTab)
+- `src/components/ClassroomTab.tsx` — 4-mode classroom (Flashcards, Quizzes, Speech, Tutor + Conversation roleplay)
+- `src/components/SettingsTab.tsx` — preferences + progress
+- `src/components/ConversationPackView.tsx` — conversation pack renderer
+- `src/data/languageConfig.ts` — per-language rendering rules
+- `src/data/languages/el.ts` — Greek knowledge base (common words, grammar patterns)
+- `src/data/conversationPacks.ts` — pre-written dialogue packs (10-15)
+- `src/utils/progressStore.ts` — track completed lessons, quiz scores, flashcards done
+
+#### Files to modify (revised)
+- `src/App.tsx` — 4 tabs, integrate PhraseBreakdown, Conversation Packs
+- `src/components/Header.tsx` — 4 tabs
+- `src/components/CurriculumTab.tsx` → rename to `TextbookTab.tsx` + add pack types
+- `src/components/TranslatorTab.tsx` — **KEEP enrichment** (reversed from original plan), add Conversation Packs section below translation
+- `src/types.ts` — add `ConversationPack`, `LanguageKnowledgeBase` types
+
+#### Files to remove (unchanged)
+- `QuizTab.tsx`, `SpeechLabTab.tsx`, `UrbanSlangHubTab.tsx`, `StarterDeckModal.tsx`, `SavePhraseModal.tsx`
+- `PhrasebookTab.tsx` (content merges into Textbook)
+- `FlashcardTab.tsx` (logic merges into Classroom)
+
+### Prioritized implementation roadmap
+
+#### Phase A: Frontend Foundations
+```
+Step 1 — Reusable <PhraseBreakdown> component + "Use in sentence" on word cards
+    • Extract 4-tab system from TranslatorTab into PhraseBreakdown.tsx
+    • Add sentence context to each word card
+    • Size: 1-2 days
+    • Value: Eliminates duplicated enrichment code everywhere
+
+Step 2 — Language-aware rendering config
+    • Create languageConfig.ts with per-language rules
+    • UI adapts sections per language
+    • Size: 2 days
+    • Value: Future-proofs UI for any language
+
+Step 3 — Per-language knowledge base (Greek first)
+    • 500+ common words pre-translated
+    • Core grammar pattern templates (no AI needed for common patterns)
+    • Client-side word lookup skips AI for known words
+    • Size: 1-2 weeks
+    • Value: Biggest AI cost reduction, instant word breakdowns
+```
+
+#### Phase B: Conversation Packs + Pack System
+```
+Step 4 — Conversation Packs data model
+    • New data type + 10-15 pre-written packs as JSON
+    • Display contextually in Translator below translation
+    • Size: 2-3 days
+    • Value: Immediate feature users can interact with
+
+Step 5 — Unified Pack system in Textbook
+    • One component for Core Packs, Conversation Packs, Custom Packs
+    • Each phrase expandable → shows Phrase Breakdown
+    • Auto-saved "Quick Translations" pack
+    • Size: 1 week
+    • Value: Consolidates all learning content in one place
+
+Step 6 — Custom Packs (AI bulk generation)
+    • "Generate 25 phrases about [topic]" button
+    • AI batch-generates → stored locally as pack
+    • Size: 2 days
+    • Value: Users can create study material on any topic
+```
+
+#### Phase C: Classroom Restructure
+```
+Step 7 — Classroom tab
+    • Merge flashcard, quiz, speech logic
+    • Add Conversation Roleplay mode
+    • Select a pack → choose study mode
+    • Size: 2 weeks
+```
+
+#### Phase D: Settings + Polish
+```
+Step 8 — Settings tab + progress tracking
+    • Preferences, defaults, progress stats
+    • Size: 2 days
+
+Step 9 — Remove old components, cleanup
+    • Delete deprecated files, update README
+    • Size: 1 day
+```
+
+#### Phase E: App-wide Intelligence
+```
+Step 10 — Template-based quiz generation
+    • Generate fill-in-blank, MCQs from any phrase without AI
+    • Size: 3 days
+
+Step 11 — Offline phrase packs (IndexedDB)
+    • Core packs downloadable once, usable offline
+    • Size: 3 days
+```
+
+### Recommended starting point
+
+**Phase A, Step 1** (PhraseBreakdown component + "Use in sentence") — sets up the architecture everything else depends on, with immediate visible improvement to word cards.
