@@ -65,7 +65,6 @@ export const CurriculumTab: React.FC<CurriculumTabProps> = ({
         body: JSON.stringify({
           phrases: uncached.map((p) => ({ id: p.id, english: p.english })),
           targetLang: selectedLang,
-          langName: langObj.name,
         }),
       });
 
