@@ -40,8 +40,7 @@ async function callGemini(ai: any, params: { contents: any; config?: any }) {
 // 1. SINGLE-PHRASE TRANSLATION
 app.post('/api/translate', async (req, res) => {
   try {
-    const { text, sourceLang = 'auto', targetLang = 'es', langName } = req.body;
-    const langLabel = langName || targetLang;
+    const { text, sourceLang = 'auto', targetLang = 'es' } = req.body;
     if (!text || !text.trim()) return res.status(400).json({ error: 'Text required' });
 
     const ck = `trans:${sourceLang}:${targetLang}:${text.trim().toLowerCase()}`;
@@ -52,7 +51,7 @@ app.post('/api/translate', async (req, res) => {
     const response = await callGemini(ai, {
       contents: `Translate "${text.trim()}" from ${sourceLang} to ${targetLang}. Return JSON.`,
       config: {
-        systemInstruction: `You are a language tutor. Return ONLY valid JSON with fields: translatedText, overallPhonetic, sentences (array of {sourceSentence, translatedSentence, phonetic, wordBreakdown: [{original, phonetic, translation, pos, note}]}), slangInsights ([{phrase, meaning, literalTranslation, culturalNote, register}]), grammarNotes (string[]), alternativeTranslations (array of {phrase: "alternative way to say it in ${langLabel}", phonetic: "Latin transliteration", literalMeaning: "literal meaning in ${sourceLang}"}), formalityLevel, sourceLang, targetLang, detectedSourceLang, sourceText. Include 2-4 alternative ways to say the same thing covering formal, neutral, and casual registers. Write all explanatory text (grammar notes, slang meanings, cultural notes) in ${sourceLang}. GRAMMAR NOTES: Include phonetic and English translation inline for any example words (e.g. "'ιδωθούμε' [idouthoúme] means 'we see each other'"). WORD BREAKDOWN NOTES: Use a simple "Meaning: [English] / Used like: [plain explanation]" format. Avoid technical jargon in notes — explain terms simply. Phonetic must be Latin transliteration.`,
+        systemInstruction: `You are a language tutor. Return ONLY valid JSON with fields: translatedText, overallPhonetic, sentences (array of {sourceSentence, translatedSentence, phonetic, wordBreakdown: [{original, phonetic, translation, pos, note}]}), slangInsights ([{phrase, meaning, literalTranslation, culturalNote, register}]), grammarNotes (string[]), alternativeTranslations (array of {phrase: "alternative way to say it in ${targetLang}", phonetic: "Latin transliteration", literalMeaning: "literal meaning in ${sourceLang}"}), formalityLevel, sourceLang, targetLang, detectedSourceLang, sourceText. Include 2-4 alternative ways to say the same thing covering formal, neutral, and casual registers. Write all explanatory text (grammar notes, slang meanings, cultural notes) in ${sourceLang}. GRAMMAR NOTES: Include phonetic and English translation inline for any example words (e.g. "'ιδωθούμε' [idouthoúme] means 'we see each other'"). WORD BREAKDOWN NOTES: Use a simple "Meaning: [English] / Used like: [plain explanation]" format. Avoid technical jargon in notes — explain terms simply. Phonetic must be Latin transliteration.`,
         responseMimeType: 'application/json',
       },
     });

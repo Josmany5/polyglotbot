@@ -45,8 +45,7 @@ exports.handler = async (event) => {
   try {
     // 1. TRANSLATE
     if (path === '/api/translate' && method === 'POST') {
-      const { text, sourceLang = 'auto', targetLang = 'es', langName } = JSON.parse(event.body || '{}');
-      const langLabel = langName || targetLang;
+      const { text, sourceLang = 'auto', targetLang = 'es' } = JSON.parse(event.body || '{}');
       if (!text?.trim()) return jsonResponse({ error: 'Text required' }, 400);
       const ck = `t:${sourceLang}:${targetLang}:${text.trim().toLowerCase()}`;
       const cached = cacheGet(ck);
@@ -55,7 +54,7 @@ exports.handler = async (event) => {
       const result = await gemini(
         `Translate the following text from ${sourceLang} to ${targetLang}: "${text.trim()}".
 
-Return a JSON object with these fields: translatedText, overallPhonetic, sentences (array of {sourceSentence, translatedSentence, phonetic, wordBreakdown: [{original, phonetic, translation, pos, note}]}), slangInsights (array of {phrase, meaning, literalTranslation, culturalNote, register}), grammarNotes (array of strings), alternativeTranslations (array of {phrase: "alternative way to say it in ${langLabel}", phonetic: "Latin transliteration", literalMeaning: "literal meaning in ${sourceLang}"}), formalityLevel, sourceLang, targetLang, detectedSourceLang, sourceText. Include 2-4 alternative translations covering formal, neutral, and casual registers.
+Return a JSON object with these fields: translatedText, overallPhonetic, sentences (array of {sourceSentence, translatedSentence, phonetic, wordBreakdown: [{original, phonetic, translation, pos, note}]}), slangInsights (array of {phrase, meaning, literalTranslation, culturalNote, register}), grammarNotes (array of strings), alternativeTranslations (array of {phrase: "alternative way to say it in ${targetLang}", phonetic: "Latin transliteration", literalMeaning: "literal meaning in ${sourceLang}"}), formalityLevel, sourceLang, targetLang, detectedSourceLang, sourceText. Include 2-4 alternative translations covering formal, neutral, and casual registers.
 
 Write all grammar notes, slang meanings, cultural notes in ${sourceLang}. GRAMMAR NOTES: Include phonetic and English translation inline for any example words (e.g. "'ιδωθούμε' [idouthoúme] means 'we see each other'"). WORD BREAKDOWN NOTES: Use a simple "Meaning: [English] / Used like: [plain explanation]" format. Avoid technical jargon in notes — explain terms simply. CRITICAL: In wordBreakdown, "original" MUST be the ${targetLang} word in native script, "translation" MUST be the meaning in ${sourceLang}. Never swap these fields.`,
         `You are a language tutor. Return ONLY valid JSON — no markdown, no code fences, no additional text. Phonetic must be clear Latin transliteration. Include all specified fields.`
