@@ -520,9 +520,9 @@ export const TranslatorTab: React.FC<TranslatorTabProps> = ({
                       return (
                         <div key={idx} className="p-4 bg-white rounded-2xl border-2 border-[#2D3436] shadow-[4px_4px_0px_0px_rgba(45,52,54,1)] flex items-center justify-between gap-3">
                           <div className="space-y-1 min-w-0 flex-1">
+                            {literalMeaning && <p className="text-[11px] font-semibold text-[#636E72]">"{literalMeaning}"</p>}
                             <p className="text-sm font-black text-[#2D3436]">{phrase}</p>
                             {phonetic && <p className="text-xs font-mono font-bold text-[#FF6B6B]">[{phonetic}]</p>}
-                            {literalMeaning && <p className="text-[11px] font-semibold text-[#636E72] italic">"{literalMeaning}"</p>}
                           </div>
                           <button
                             onClick={() => playTextToSpeech(phrase, targetLang, playbackSpeed)}
