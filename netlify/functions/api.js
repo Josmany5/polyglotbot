@@ -66,12 +66,13 @@ Write all grammar notes, slang meanings, cultural notes in ${sourceLang}. GRAMMA
 
     // 2. BATCH TRANSLATE
     if (path === '/api/batch-translate' && method === 'POST') {
-      const { phrases, targetLang = 'es' } = JSON.parse(event.body || '{}');
+      const { phrases, targetLang = 'es', langName } = JSON.parse(event.body || '{}');
+      const langLabel = langName || targetLang;
       if (!Array.isArray(phrases) || !phrases.length) return jsonResponse({ error: 'phrases required' }, 400);
 
       const result = await gemini(
-        `Translate EXACTLY these ${phrases.length} English phrases into ${targetLang} (NOT any other language). Do NOT change or rephrase. Each "translated" field MUST be in ${targetLang}. Return JSON: {"results": [${phrases.map(p => `{"id":"${p.id}","english":"${p.english}","translated":"...","phonetic":"...","grammarNote":"..."}`).join(',')}]}. All notes in plain English.`,
-        `You are a precise translator. Translate into ${targetLang} only. Return ONLY valid JSON. Translate exactly as given.`
+        `Translate EXACTLY these ${phrases.length} English phrases into ${langLabel} (NOT any other language). Do NOT change or rephrase. Each "translated" field MUST be in ${langLabel}. Return JSON: {"results": [${phrases.map(p => `{"id":"${p.id}","english":"${p.english}","translated":"...","phonetic":"...","grammarNote":"..."}`).join(',')}]}. All notes in plain English.`,
+        `You are a precise translator. Translate into ${langLabel} only. Return ONLY valid JSON. Translate exactly as given.`
       );
       return jsonResponse(JSON.parse(stripJson(result)));
     }

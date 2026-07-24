@@ -67,16 +67,17 @@ app.post('/api/translate', async (req, res) => {
 // 2. BATCH TRANSLATION
 app.post('/api/batch-translate', async (req, res) => {
   try {
-    const { phrases, targetLang = 'es' } = req.body;
+    const { phrases, targetLang = 'es', langName } = req.body;
+    const langLabel = langName || targetLang;
     if (!Array.isArray(phrases) || !phrases.length) return res.status(400).json({ error: 'phrases required' });
 
     const ai = getGeminiClient();
     const ids = phrases.map((p: any) => `{"id":"${p.id}","english":"${p.english}","translated":"...","phonetic":"...","grammarNote":"..."}`).join(',');
 
     const response = await callGemini(ai, {
-      contents: `Translate these ${phrases.length} English phrases into ${targetLang} (NOT any other language). Each "translated" field MUST be in ${targetLang}. Return JSON: {"results":[${ids}]}. Fill all fields.`,
+      contents: `Translate these ${phrases.length} English phrases into ${langLabel} (NOT any other language). Each "translated" field MUST be in ${langLabel}. Return JSON: {"results":[${ids}]}. Fill all fields.`,
       config: {
-        systemInstruction: `Translate exactly into ${targetLang} only. Return ONLY valid JSON. Phonetic in Latin script. Grammar notes in plain English.`,
+        systemInstruction: `Translate exactly into ${langLabel} only. Return ONLY valid JSON. Phonetic in Latin script. Grammar notes in plain English.`,
         responseMimeType: 'application/json',
       },
     });
