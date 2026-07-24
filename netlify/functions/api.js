@@ -52,8 +52,8 @@ exports.handler = async (event) => {
   try {
     // 1. TRANSLATE
     if (path === '/api/translate' && method === 'POST') {
-      const langLabel = LANG_NAME[targetLang] || targetLang;
       const { text, sourceLang = 'auto', targetLang = 'es' } = JSON.parse(event.body || '{}');
+      const langLabel = LANG_NAME[targetLang] || targetLang;
       if (!text?.trim()) return jsonResponse({ error: 'Text required' }, 400);
       const ck = `t:${sourceLang}:${targetLang}:${text.trim().toLowerCase()}`;
       const cached = cacheGet(ck);
@@ -74,8 +74,8 @@ Write all grammar notes, slang meanings, cultural notes in ${sourceLang}. GRAMMA
 
     // 2. BATCH TRANSLATE
     if (path === '/api/batch-translate' && method === 'POST') {
-      const langLabel = LANG_NAME[targetLang] || targetLang;
       const { phrases, targetLang = 'es' } = JSON.parse(event.body || '{}');
+      const langLabel = LANG_NAME[targetLang] || targetLang;
       if (!Array.isArray(phrases) || !phrases.length) return jsonResponse({ error: 'phrases required' }, 400);
 
       const result = await gemini(
